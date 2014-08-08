@@ -1,6 +1,7 @@
 #ifndef QCQPCPP_INC_SGOPTPROBLEM_H
 #define QCQPCPP_INC_SGOPTPROBLEM_H
 
+#include <iostream> // cout, cerr, endl
 #include "Eigen/Sparse"
 
 namespace qcqpcpp
