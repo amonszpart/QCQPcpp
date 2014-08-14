@@ -1,6 +1,9 @@
 #ifndef QCQPCPP_MOSEKOPT_HPP
 #define QCQPCPP_MOSEKOPT_HPP
 
+#include <iomanip>
+#include "mosek.h"              /* Include the MOSEK definition file. */
+
 namespace qcqpcpp
 {
 
@@ -39,7 +42,8 @@ MosekOpt<_Scalar>::~MosekOpt()
 }
 
 template <typename _Scalar> typename MosekOpt<_Scalar>::ReturnType
-MosekOpt<_Scalar>::update( bool verbose )
+MosekOpt<_Scalar>::
+update( bool verbose )
 {
     if ( _task != NULL )
     {
@@ -123,7 +127,6 @@ MosekOpt<_Scalar>::update( bool verbose )
     if ( MSK_RES_OK == _r )
     {
         const int numNonZeros = this->getQuadraticObjectives().size();
-
         MSKint32t *qsubi = new MSKint32t[numNonZeros],
                   *qsubj = new MSKint32t[numNonZeros];
         double    *qval  = new double[numNonZeros];
@@ -154,8 +157,9 @@ MosekOpt<_Scalar>::update( bool verbose )
 
     // set Linear Constraints
     {
-        typename ParentType::SparseMatrix A( this->getConstraintCount(), this->getVarCount() );
-        A.setFromTriplets( this->getLinConstraints().begin(), this->getLinConstraints().end() );
+        typename ParentType::SparseMatrix A( this->getLinConstraintsMatrix() );
+//        ( this->getConstraintCount(), this->getVarCount() );
+//        A.setFromTriplets( this->getLinConstraints().begin(), this->getLinConstraints().end() );
         std::vector<Scalar>         aval;                //!< \brief Linear constraints coeff matrix (sparse)
         std::vector<int>            asub;                //!< \brief Linear constraints coeff matrix indices
         std::vector<int>            aptrb, aptre;
@@ -255,32 +259,78 @@ MosekOpt<_Scalar>::update( bool verbose )
             std::cerr << "[" << __func__ << "]: " << "Setting Quad constraints caused error code " << (int)_r << std::endl;
     } // ...set Quadratic Constraints
 
+    // save to file
+    {
+        if ( _r == MSK_RES_OK )
+        {
+            _r = MSK_putintparam( _task, MSK_IPAR_WRITE_DATA_FORMAT, MSK_DATA_FORMAT_LP );
+            if ( _r == MSK_RES_OK )
+            {
+                _r = MSK_writedata( _task, "mosek.lp" );
+                if ( _r == MSK_RES_OK )
+                {
+                    std::cerr << "[" << __func__ << "]: " << "Writedata did not work" << std::endl;
+                }
+            }
+        }
+    }
+
     // return error code
     return _r;
 } // ...MosekOpt::update()
 
 template <typename _Scalar> typename MosekOpt<_Scalar>::ReturnType
-MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, SG_OBJ_SENSE objective_sense )
+MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_sense )
 {
-    MSKobjsense_enum objsense = (objective_sense == SG_OBJ_SENSE::MINIMIZE) ? MSK_OBJECTIVE_SENSE_MINIMIZE
-                                                                            : MSK_OBJECTIVE_SENSE_MAXIMIZE;
+    // cache problem size
     const int numvar = this->getVarCount();
-    /* Maximize objective function. */
+
+    // determine problem type
+    MSKobjsense_enum objsense = (objective_sense == OBJ_SENSE::MINIMIZE) ? MSK_OBJECTIVE_SENSE_MINIMIZE
+                                                                         : MSK_OBJECTIVE_SENSE_MAXIMIZE;
     if ( MSK_RES_OK == _r )
         _r = MSK_putobjsense( _task, objsense );
 
     if ( MSK_RES_OK == _r  )
     {
+        // set termination sensitivity
         MSKrescodee trmcode;
         MSK_putdouparam( _task, MSK_DPAR_MIO_TOL_REL_GAP, 1e-10f );
 
-        /* Run optimizer */
+        if (_r == MSK_RES_OK)
+        {
+            //_r = MSK_putintparam(_task, MSK_IPAR_OPTIMIZER, MSK_OPTIMIZER_MIXED_INT_CONIC );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_OPTIMIZER_MIXED_INT_CONIC did not work!" << std::endl;
+            }
+        }
+
+        if ( _r == MSK_RES_OK )
+        {
+            _r = MSK_putintparam( _task, MSK_IPAR_MIO_PRESOLVE_USE, MSK_OFF );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_IPAR_MIO_PRESOLVE_USE did not work!" << std::endl;
+            }
+        }
+
+        if ( _r == MSK_RES_OK )
+        {
+            _r = MSK_putintparam( _task, MSK_IPAR_MIO_HEURISTIC_LEVEL, 5 );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_IPAR_MIO_HEURISTIC_LEVEL did not work!" << std::endl;
+            }
+        }
+
+        // Run optimizer
         _r = MSK_optimizetrm( _task, &trmcode );
 
         // Print a summary containing information about the solution for debugging purposes.
         MSK_solutionsummary( _task, MSK_STREAM_LOG );
-        std::cout << "solsummary finished" << std::endl; fflush(stdout);
 
+        // save solution
         double *xx = (double*) calloc(numvar,sizeof(double));
         if ( _r == MSK_RES_OK )
         {
@@ -422,24 +472,64 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, SG_OBJ_SENSE objective
     return _r;
 } // ...MosekOpt::optimize()
 
+template <typename _Scalar> Eigen::Matrix<_Scalar,3,1>
+MosekOpt<_Scalar>::checkSolution( std::vector<_Scalar> x, Eigen::Matrix<_Scalar,3,1> weights ) const // TODO: probably move to optproblem.h
+{
+    Eigen::Matrix<_Scalar,3,1> energy; energy.setZero();
+
+    SparseMatrix complexity( x.size(), 1 );
+    for ( int row = 0; row != x.size(); ++row )
+        complexity.insert( row, 0 ) = weights(2);
+
+    // X
+    SparseMatrix mx( x.size(), 1 );
+    for ( size_t i = 0; i != x.size(); ++i )
+        mx.insert( i, 0 ) = x[i];
+
+    SparseMatrix linObj = this->getLinObjectivesMatrix();
+    SparseMatrix data   = linObj - complexity;
+
+    // qo
+    SparseMatrix e02 = mx.transpose() * linObj;
+    std::cout << "[" << __func__ << "]: " << "qo * x = " << e02.coeffRef(0,0) << std::endl; fflush(stdout);
+
+    // datacost
+    SparseMatrix e0 = (mx.transpose() * data);
+    energy(0) = e0.coeffRef(0,0);
+    //std::cout << "[" << __func__ << "]: " << "data: " << energy(0) << std::endl; fflush(stdout);
+
+    // Qo
+    SparseMatrix e1 = mx.transpose() * this->getQuadraticObjectivesMatrix() * mx;
+    energy(1) = e1.coeffRef(0,0);
+    //std::cout << "[" << __func__ << "]: " << "x' * Qo * x = pw = " << energy(1) << std::endl; fflush(stdout);
+
+    // complexity
+    SparseMatrix e2 = mx.transpose() * complexity;
+    energy(2) = e2.coeffRef(0,0);
+    //std::cout << "[" << __func__ << "]: " << "complx = " << energy(2) << std::endl; fflush(stdout);
+    std::cout << "[" << __func__ << "]: " << std::setprecision(9) << energy(0) << " + " << energy(1) << " + " << energy(2) << " = " << energy.sum() << std::endl;
+
+    return energy;
+}
+
 template <typename _Scalar> MSKboundkeye
-MosekOpt<_Scalar>::ToMosek( typename MosekOpt<_Scalar>::SG_BOUND bound )
+MosekOpt<_Scalar>::ToMosek( typename MosekOpt<_Scalar>::BOUND bound )
 {
     switch( bound )
     {
-        case SG_BOUND::GREATER_EQ:
+        case BOUND::GREATER_EQ:
             return MSK_BK_LO;
             break;
-        case SG_BOUND::LESS_EQ:
+        case BOUND::LESS_EQ:
             return MSK_BK_UP;
             break;
-        case SG_BOUND::EQUAL:
+        case BOUND::EQUAL:
             return MSK_BK_FX;
             break;
-        case SG_BOUND::FREE:
+        case BOUND::FREE:
             return MSK_BK_FR;
             break;
-        case SG_BOUND::RANGE:
+        case BOUND::RANGE:
             return MSK_BK_RA;
             break;
         default:
@@ -450,14 +540,14 @@ MosekOpt<_Scalar>::ToMosek( typename MosekOpt<_Scalar>::SG_BOUND bound )
 } // ...MosekOpt::ToMosek( bound )
 
 template <typename _Scalar> MSKvariabletypee
-MosekOpt<_Scalar>::ToMosek( MosekOpt<_Scalar>::SG_VAR_TYPE var_type )
+MosekOpt<_Scalar>::ToMosek( MosekOpt<_Scalar>::VAR_TYPE var_type )
 {
     switch( var_type  )
     {
-        case SG_VAR_TYPE::CONTINUOUS:
+        case VAR_TYPE::CONTINUOUS:
             return MSK_VAR_TYPE_CONT;
             break;
-        case SG_VAR_TYPE::INTEGER:
+        case VAR_TYPE::INTEGER:
             return MSK_VAR_TYPE_INT;
             break;
         default:

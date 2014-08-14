@@ -21,19 +21,23 @@ class MosekOpt : public OptProblem<_Scalar,MSKrescodee>
         typedef          OptProblem<_Scalar,MSKrescodee> ParentType;
         typedef typename ParentType::Scalar         Scalar;
         typedef typename ParentType::ReturnType     ReturnType;
-        typedef typename ParentType::SG_OBJ_SENSE   SG_OBJ_SENSE;
-        typedef typename ParentType::SG_BOUND       SG_BOUND;
-        typedef typename ParentType::SG_VAR_TYPE    SG_VAR_TYPE;
+        typedef typename ParentType::OBJ_SENSE      OBJ_SENSE;
+        typedef typename ParentType::BOUND          BOUND;
+        typedef typename ParentType::VAR_TYPE       VAR_TYPE;
+        typedef typename ParentType::SparseMatrix   SparseMatrix;
 
         virtual ReturnType update  ( bool verbose = false ) override;
         virtual ReturnType optimize( std::vector<_Scalar> *x_out = NULL
-                                     , SG_OBJ_SENSE objecitve_sense = SG_OBJ_SENSE::MINIMIZE ) override;
+                                     , OBJ_SENSE objecitve_sense = OBJ_SENSE::MINIMIZE ) override;
+        virtual Scalar getINF() const override { return 1.0e30; }
 
         MosekOpt( MSKenv_t *env = NULL );
         virtual ~MosekOpt();
 
-        static inline MSKboundkeye     ToMosek( typename ParentType::SG_BOUND bound );
-        static inline MSKvariabletypee ToMosek( typename ParentType::SG_VAR_TYPE var_type );
+        static inline MSKboundkeye     ToMosek( typename ParentType::BOUND bound );
+        static inline MSKvariabletypee ToMosek( typename ParentType::VAR_TYPE var_type );
+
+        Eigen::Matrix<_Scalar,3,1> checkSolution( std::vector<_Scalar> x, Eigen::Matrix<_Scalar,3,1> weights ) const;
 
     protected:
         ReturnType                _r;                   //!< \brief Mosek error code for operation calls

@@ -1,8 +1,8 @@
 #include "qcqpcpp/mosekOptProblem.h"
 
-inline qcqpcpp::MosekOpt<double>::SG_BOUND toSGBound( MSKboundkeye bound )
+inline qcqpcpp::MosekOpt<double>::BOUND toSGBound( MSKboundkeye bound )
 {
-    return qcqpcpp::MosekOpt<double>::SG_BOUND( bound );
+    return qcqpcpp::MosekOpt<double>::BOUND( bound );
 }
 
 int testQC()

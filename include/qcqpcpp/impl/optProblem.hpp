@@ -1,11 +1,13 @@
 #ifndef QCQPCPP_SGOPTPROBLEM_HPP
 #define QCQPCPP_SGOPTPROBLEM_HPP
 
+#include <exception>
+
 namespace qcqpcpp
 {
 
 template <typename _Scalar, typename _ReturnType> int
-OptProblem<_Scalar,_ReturnType>::addVariable( SG_BOUND bound_type, Scalar lower_bound, Scalar upper_bound, SG_VAR_TYPE var_type )
+OptProblem<_Scalar,_ReturnType>::addVariable( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, VAR_TYPE var_type )
 {
     // var bound type { MSK_BK_FX = fixed, MSK_BK_FR = free, MSK_BK_LO = blx[j] .. INF, MSK_BK_RA = blx[j] .. bux[j], MSK_BK_UP = -INF .. bux[j] }
     _bkx.push_back( bound_type  );
@@ -18,8 +20,11 @@ OptProblem<_Scalar,_ReturnType>::addVariable( SG_BOUND bound_type, Scalar lower_
     // variable type
     _type_x.push_back( var_type );
 
-    return EXIT_SUCCESS;
-} // ...MosekOpt::addVariable
+    //return EXIT_SUCCESS;
+    return _bkx.size()-1;
+} // ...OptProblem::addVariable
+
+//______________________________________________________________________________
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::setLinObjective( int j, Scalar coeff )
@@ -33,7 +38,7 @@ OptProblem<_Scalar,_ReturnType>::setLinObjective( int j, Scalar coeff )
     _linObjs[ j ] = coeff;
 
     return EXIT_SUCCESS;
-} // ...MosekOpt::setVarLinCoeff
+} // ...OptProblem::setVarLinCoeff
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::addLinObjective( int j, Scalar coeff )
@@ -47,7 +52,7 @@ OptProblem<_Scalar,_ReturnType>::addLinObjective( int j, Scalar coeff )
     _linObjs[ j ] += coeff;
 
     return EXIT_SUCCESS;
-} // ...MosekOpt::addVarLinCoeff
+} // ...OptProblem::addVarLinCoeff
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::addLinObjectives( SparseMatrix const& mx )
@@ -72,7 +77,19 @@ OptProblem<_Scalar,_ReturnType>::addLinObjectives( SparseMatrix const& mx )
         }
 
     return err;
-} // ...MosekOpt::addVarLinCoeff
+} // ...OptProblem::addVarLinCoeff
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::getLinObjectivesMatrix() const
+{
+    SparseMatrix smx( this->getVarCount(), 1 );
+    for ( int i = 0; i != this->_linObjs.size(); ++i )
+    {
+        smx.insert( i, 0 ) = this->_linObjs[i];
+    }
+
+    return smx;
+} // ...OptProblem::getQuadraticObjectivesMatrix()
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::addQObjective( int i, int j, Scalar coeff )
@@ -83,10 +100,14 @@ OptProblem<_Scalar,_ReturnType>::addQObjective( int i, int j, Scalar coeff )
         return EXIT_FAILURE;
     }
 
+    // only lower triangle
+    if ( j > i )
+        std::swap( i, j );
+
     _quadObjList.push_back( Eigen::Triplet<Scalar>(i,j,coeff) );
 
     return EXIT_SUCCESS;
-} // ...MosekOpt::addQObjectives()
+} // ...OptProblem::addQObjectives()
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::addQObjectives( SparseMatrix const& mx )
@@ -106,29 +127,81 @@ OptProblem<_Scalar,_ReturnType>::addQObjectives( SparseMatrix const& mx )
             err += addQObjective( it.row(), it.col(), it.value() );
 
     return err;
-} // ...MosekOpt::addQObjectives()
+} // ...OptProblem::addQObjectives()
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::setQObjectives( SparseMatrix const& mx )
 {
     _quadObjList.clear();
     return addQObjectives( mx );
-} // ...MosekOpt::setQObjectives()
+} // ...OptProblem::setQObjectives()
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::getQuadraticObjectivesMatrix() const
+{
+    SparseMatrix mx( this->getVarCount(), this->getVarCount() );
+    mx.setFromTriplets( this->_quadObjList.begin(), this->_quadObjList.end() );
+
+    return mx;
+} // ...OptProblem::getQuadraticObjectivesMatrix()
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::estimateHessianOfLagrangian() const
+{
+    if ( _quadConstrList.size() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "Hessian NOT implemented for quadratic constraints yet..." << std::endl;
+        throw new std::runtime_error( "[OptProblem::estimateHessianOfLagrangian] Hessian NOT implemented for quadratic constraints yet..." );
+    }
+
+    SparseMatrix hessian( getVarCount(), getVarCount() );
+    hessian.reserve( _linConstrList.size() );
+    for ( int i = 0; i != _linConstrList.size(); ++i )
+    {
+        // (c * x^2)'' == 2c. Second derivative has a 2 multiplier if it's a squared variable.
+        if ( _linConstrList[i].row() != _linConstrList[i].col() )
+            hessian.insert( _linConstrList[i].row(), _linConstrList[i].col() ) = _linConstrList[i].value();
+        else
+            hessian.insert( _linConstrList[i].row(), _linConstrList[i].col() ) = _Scalar(2) * _linConstrList[i].value();
+    } // for linConstrList
+
+    return hessian;
+} // ...OptProblem::estimateHessianOfLagrangian()
+
+//______________________________________________________________________________
 
 template <typename _Scalar, typename _ReturnType> int
-OptProblem<_Scalar,_ReturnType>::addLinConstraint( std::vector<Scalar> coeffs, SG_BOUND bound_type, Scalar lower_bound, Scalar upper_bound )
+OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, std::vector<Scalar> *coeffs /* = NULL */ )
+{
+    // constraint coeffs
+    if ( coeffs )
+    {
+        // add coeffs from new line
+        for ( size_t i = 0; i != coeffs->size(); ++i )
+        {
+            // add non-zero elements to sparse representation
+            if ( (*coeffs)[i] != Scalar(0) )
+            {
+                _linConstrList.push_back( SparseEntry(row, i, (*coeffs)[i]) );
+            }
+        }
+    }
+}
+
+template <typename _Scalar, typename _ReturnType> int
+OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, SparseMatrix row_vector )
 {
     // usage:
     //    coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n >= lower_bound              , bound_type == MSK_BK_LO
     // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n <= upper_bound              , bound_type == MSK_BK_UP
     // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n =  lower_bound = upper_bound, bound_type == MSK_BK_FX
-    if ( coeffs.size() != getVarCount() )
+    if ( coeffs && (coeffs->size() != getVarCount()) )
     {
-        std::cerr << "[" << __func__ << "]: " << "A line in the constraints matrix A has to be varCount " << getVarCount() << " long, not " << coeffs.size() << std::endl;
+        std::cerr << "[" << __func__ << "]: " << "A line in the constraints matrix A has to be varCount " << getVarCount() << " long, not " << coeffs->size() << std::endl;
         return EXIT_FAILURE;
     }
 
-    if      ( bound_type == SG_BOUND::EQUAL )
+    if      ( bound_type == BOUND::EQUAL )
     {
         if ( lower_bound != upper_bound )
         {
@@ -136,25 +209,25 @@ OptProblem<_Scalar,_ReturnType>::addLinConstraint( std::vector<Scalar> coeffs, S
             return EXIT_FAILURE;
         }
     }
-    else if ( bound_type == SG_BOUND::GREATER_EQ )
+    else if ( bound_type == BOUND::GREATER_EQ )
     {
-        if ( upper_bound != MSK_INFINITY )
+        if ( upper_bound != getINF() )
         {
             std::cerr << "[" << __func__ << "]: " << "If bound_type is LOwer, upper_bound should probably be infinity, and not " << upper_bound << std::endl;
             return EXIT_FAILURE;
         }
     }
-    else if ( bound_type == SG_BOUND::LESS_EQ )
+    else if ( bound_type == BOUND::LESS_EQ )
     {
-        if ( lower_bound != -MSK_INFINITY )
+        if ( lower_bound != -getINF() )
         {
             std::cerr << "[" << __func__ << "]: " << "If bound_type is UPper, lower_bound should probably be -infinity, and not " << lower_bound << std::endl;
             return EXIT_FAILURE;
         }
     }
-    else if ( bound_type == SG_BOUND::RANGE )
+    else if ( bound_type == BOUND::RANGE )
     {
-        if ( (lower_bound == -MSK_INFINITY) || (upper_bound == MSK_INFINITY) )
+        if ( (lower_bound == -getINF()) || (upper_bound == getINF()) )
         {
             std::cerr << "[" << __func__ << "]: " << "If bound_type is RAnge, bounds should not be infinity: " << lower_bound << ", " << upper_bound << std::endl;
             return EXIT_FAILURE;
@@ -176,20 +249,47 @@ OptProblem<_Scalar,_ReturnType>::addLinConstraint( std::vector<Scalar> coeffs, S
     _buc.push_back( upper_bound );
 
     // constraint coeffs
+    if ( coeffs )
     {
         // add coeffs from new line
-        for ( size_t i = 0; i != coeffs.size(); ++i )
+        for ( size_t i = 0; i != coeffs->size(); ++i )
         {
             // add non-zero elements to sparse representation
-            if ( coeffs[i] != Scalar(0) )
+            if ( (*coeffs)[i] != Scalar(0) )
             {
-                _linConstrList.push_back( SparseEntry(row, i, coeffs[i]) );
+                _linConstrList.push_back( SparseEntry(row, i, (*coeffs)[i]) );
             }
         }
     }
 
     return EXIT_SUCCESS;
-} // ...MosekOpt::addConstraint
+} // ...OptProblem::addConstraint
+
+template <typename _Scalar, typename _ReturnType> int
+OptProblem<_Scalar,_ReturnType>::addLinConstraints( SparseMatrix const& mx )
+{
+    if ( mx.rows() != this->getConstraintCount() || mx.cols() != this->getVarCount() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "mx has to be m x n, m == constrCount(" << this->getConstraintCount() << "), n == varCount(" << this->getVarCount() << ")...returning" << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    this->_linConstrList.reserve( this->_linConstrList.size() + mx.nonZeros() );
+    for ( int row = 0; row != mx.outerSize(); ++row )
+        for ( typename SparseMatrix::InnerIterator it(mx,row); it; ++it )
+        {
+            this->_linConstrList.push_back( SparseEntry(it.row(), it.col(), it.value()) );
+        } // ... for cols
+
+    return EXIT_SUCCESS;
+} // ...OptProblem::setLinConstraints()
+
+template <typename _Scalar, typename _ReturnType> int
+OptProblem<_Scalar,_ReturnType>::setLinConstraints( SparseMatrix const& mx )
+{
+    _linConstrList.clear();
+    return this->addLinConstraints( mx );;
+} // ...OptProblem::setLinConstraints()
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::addQConstraint( int constr_id, int i, int j, Scalar coeff )
@@ -203,34 +303,71 @@ OptProblem<_Scalar,_ReturnType>::addQConstraint( int constr_id, int i, int j, Sc
     if ( _quadConstrList.size() <= constr_id )
         _quadConstrList.resize( constr_id + 1 );
 
+    // only lower triangle
+    if ( j > i )
+        std::swap( i, j );
+
     _quadConstrList[constr_id].push_back( SparseEntry(i,j,coeff) );
     std::cout << "[" << __func__ << "]: " << "qconstrlist is now " << _quadConstrList.size() << "( " << _quadConstrList[0].size() << ")" << " long" << std::endl;
 
     return EXIT_SUCCESS;
-} // ...MosekOpt::addQConstraint
+} // ...OptProblem::addQConstraint
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::getLinConstraintsMatrix() const
+{
+    SparseMatrix mx( this->getConstraintCount(), this->getVarCount() );
+    mx.setFromTriplets( this->_linConstrList.begin(), this->_linConstrList.end() );
+
+    return mx;
+} // ...OptProblem::getLinConstraintsMatrix()
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::getQuadraticConstraintsMatrix( int i ) const
+{
+    SparseMatrix mx( this->getVarCount(), this->getVarCount() );
+    mx.setFromTriplets( this->getQuadraticConstraints(i).begin(), this->getQuadraticConstraints(i).end() );
+
+    return mx;
+} // ...OptProblem::getLinConstraintsMatrix()
+
+template <typename _Scalar, typename _ReturnType> typename OptProblem<_Scalar,_ReturnType>::SparseMatrix
+OptProblem<_Scalar,_ReturnType>::estimateJacobianOfConstraints() const
+{
+    if ( _quadConstrList.size() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "Jacobian NOT implemented for quadratic constraints yet..." << std::endl;
+        throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
+    }
+
+    SparseMatrix jacobian( getConstraintCount(), getVarCount() );
+    jacobian.setFromTriplets( _linConstrList.begin(), _linConstrList.end() );
+
+    return jacobian;
+} // ...OptProblem::estimateJacobianOfConstraints()
+
+//______________________________________________________________________________
 
 template <typename _Scalar, typename _ReturnType> int
 OptProblem<_Scalar,_ReturnType>::printProblem() const
 {
-    std::cout<<"LinObjective:";for(size_t vi=0;vi!=_linObjs.size();++vi)std::cout<<_linObjs[vi]<<" ";std::cout << "\n";
+    // linear constraints
+    SparseMatrix A = this->getLinConstraintsMatrix();
+    std::cout << "A: ";
+    for ( int row = 0; row != A.outerSize(); ++row )
+    {
+        for ( typename SparseMatrix::InnerIterator it(A,row); it; ++it )
+        {
+            std::cout << "(" << it.col() << "," << it.value() << "), ";
+        }
+        std::cout << std::endl;
+    }
 
-//    std::cout<<"_aptrb:";for(size_t vi=0;vi!=_aptrb.size();++vi)std::cout<<_aptrb[vi]<<" ";std::cout << "\n";
-//    std::cout<<"_aptre:";for(size_t vi=0;vi!=_aptre.size();++vi)std::cout<<_aptre[vi]<<" ";std::cout << "\n";
-//    std::cout<<"_asub:";for(size_t vi=0;vi!=_asub.size();++vi)std::cout<<_asub[vi]<<" ";std::cout << "\n";
-//    std::cout<<"_aval:";for(size_t vi=0;vi!=_aval.size();++vi)std::cout<<_aval[vi]<<" ";std::cout << "\n";
+    // linear objectives
+    std::cout<<"_linObjs:";for(size_t vi=0;vi!=_linObjs.size();++vi)std::cout<<_linObjs[vi]<<" ";std::cout << "\n";
+
     return EXIT_SUCCESS;
-} // ...MosekOpt::printProblem()
-
-//template <typename _Scalar, typename _ReturnType> size_t
-//SGOpt<_Scalar,_ReturnType>::_countNonZeros( std::vector<Scalar> coeffs )
-//{
-//    int cnt = 0;
-//    for ( size_t i = 0; i != coeffs.size(); ++i )
-//        if ( coeffs[i] != Scalar(0) )
-//            ++cnt;
-
-//    return cnt;
-//} // ... Mosek::_countNonZeros
+} // ...OptProblem::printProblem()
 
 } // ...namespace qcqpp
 
