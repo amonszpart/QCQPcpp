@@ -113,7 +113,12 @@ class OptProblem
         inline int                               addLinConstraint               ( BOUND                bound_type
                                                                                 , Scalar               lower_bound // = -getINF()
                                                                                 , Scalar               upper_bound //  = +getINF()
-                                                                                , std::vector<Scalar>* coeffs      = NULL
+                                                                                , std::vector<Scalar>  coeffs
+                                                                                );
+        inline int                               addLinConstraint               ( BOUND                bound_type
+                                                                                , Scalar               lower_bound // = -getINF()
+                                                                                , Scalar               upper_bound // = +getINF()
+                                                                                , SparseMatrix       * row_vector     = NULL
                                                                                 );
         inline int                               addLinConstraints              ( SparseMatrix const& mx );                     //!< \brief Adds full linear constraint matrix. Please call addLinConstraint before.
         inline int                               setLinConstraints              ( SparseMatrix const& mx );                     //!< \brief Sets full linear constraint matrix, clears previous lin constraints. Please call addLinConstraint before.

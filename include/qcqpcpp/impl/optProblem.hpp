@@ -171,36 +171,38 @@ OptProblem<_Scalar,_ReturnType>::estimateHessianOfLagrangian() const
 //______________________________________________________________________________
 
 template <typename _Scalar, typename _ReturnType> int
-OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, std::vector<Scalar> *coeffs /* = NULL */ )
-{
-    // constraint coeffs
-    if ( coeffs )
-    {
-        // add coeffs from new line
-        for ( size_t i = 0; i != coeffs->size(); ++i )
-        {
-            // add non-zero elements to sparse representation
-            if ( (*coeffs)[i] != Scalar(0) )
-            {
-                _linConstrList.push_back( SparseEntry(row, i, (*coeffs)[i]) );
-            }
-        }
-    }
-}
-
-template <typename _Scalar, typename _ReturnType> int
-OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, SparseMatrix row_vector )
+OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, std::vector<Scalar> coeffs  )
 {
     // usage:
-    //    coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n >= lower_bound              , bound_type == MSK_BK_LO
-    // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n <= upper_bound              , bound_type == MSK_BK_UP
-    // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n =  lower_bound = upper_bound, bound_type == MSK_BK_FX
-    if ( coeffs && (coeffs->size() != getVarCount()) )
+    //    coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n >= lower_bound              , bound_type == BOUND::GREATER_EQ
+    // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n <= upper_bound              , bound_type == BOUND::LESS_EQ
+    // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n =  lower_bound = upper_bound, bound_type == BOUND::FIXED
+    if ( coeffs.size() != getVarCount() )
     {
         std::cerr << "[" << __func__ << "]: " << "A line in the constraints matrix A has to be varCount " << getVarCount() << " long, not " << coeffs->size() << std::endl;
         return EXIT_FAILURE;
     }
 
+    // prepare
+    SparseMatrix row_vector( 1, coeffs.size() );
+    // add coeffs from new line
+    for ( size_t col = 0; col != coeffs->size(); ++col )
+    {
+        // add non-zero elements to sparse representation
+        if ( coeffs[col] != Scalar(0) )
+        {
+            row_vector.insert( 0, col ) = coeffs[col];
+        }
+    }
+
+    // work
+    return this->addLinConstraint( bound_type, lower_bound, upper_bound, &row_vector );
+}
+
+template <typename _Scalar, typename _ReturnType> int
+OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, SparseMatrix *row_vector /* = NULL */ )
+{
+    // check bounds
     if      ( bound_type == BOUND::EQUAL )
     {
         if ( lower_bound != upper_bound )
@@ -249,15 +251,20 @@ OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lowe
     _buc.push_back( upper_bound );
 
     // constraint coeffs
-    if ( coeffs )
+    if ( row_vector )
     {
-        // add coeffs from new line
-        for ( size_t i = 0; i != coeffs->size(); ++i )
+        if ( (row_vector->cols() != this->getVarCount()) || (row_vector->rows() != 1) )
         {
-            // add non-zero elements to sparse representation
-            if ( (*coeffs)[i] != Scalar(0) )
+            std::cerr << "[" << __func__ << "]: " << "row_vector->cols()(" << row_vector->cols() << ") != this->getVarCount() (" << this->getVarCount() << ") || row_vector->rows()( " << row_vector->rows() << " != 1, returning" << std::endl;
+            return EXIT_FAILURE;
+        }
+
+        // add coeffs from new line
+        for ( int k = 0; k != row_vector->outerSize(); ++k )
+        {
+            for ( typename SparseMatrix::InnerIterator it(*row_vector,k); it; ++it )
             {
-                _linConstrList.push_back( SparseEntry(row, i, (*coeffs)[i]) );
+                _linConstrList.push_back( SparseEntry(row, it.col(), it.value()) );
             }
         }
     }
