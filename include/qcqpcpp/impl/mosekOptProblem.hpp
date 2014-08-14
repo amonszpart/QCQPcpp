@@ -102,7 +102,7 @@ update( bool verbose )
         {
             _r = MSK_putvarbound( _task,
                                   j,                                                     /* Index of variable.*/
-                                  MosekOpt<Scalar>::ToMosek( this->getVarBoundType(j) ), /* Bound key.*/
+                                  MosekOpt<Scalar>::getBoundTypeCustom( this->getVarBoundType(j) ), /* Bound key.*/
                                   this->getVarLowerBound(j),                             /* Numerical value of lower bound.*/
                                   this->getVarUpperBound(j) );                           /* Numerical value of upper bound.*/
 
@@ -112,7 +112,7 @@ update( bool verbose )
         // set Variable j's Type
         if ( MSK_RES_OK == _r )
         {
-            _r = MSK_putvartype( _task, j, MosekOpt<Scalar>::ToMosek(this->getVarType(j)) );
+            _r = MSK_putvartype( _task, j, MosekOpt<Scalar>::getVarTypeCustom(this->getVarType(j)) );
         }
 
         // set Variable j's linear coefficient in the objective function
@@ -169,14 +169,14 @@ update( bool verbose )
             if ( MSK_RES_OK == _r )
             {
                 if ( verbose ) std::cout << "my: MSK_putconbound( _task, " << row << ", "
-                                         << MosekOpt<Scalar>::ToMosek( this->getConstraintBoundType(row) ) << ", "
+                                         << MosekOpt<Scalar>::getBoundTypeCustom( this->getConstraintBoundType(row) ) << ", "
                                          << this->getConstraintLowerBound( row ) << ", "
                                          << this->getConstraintUpperBound( row ) << ")"
                                          << std::endl; fflush( stdout );
 
                 _r = MSK_putconbound( _task,
                                       row,                                                          /* Index of constraint.*/
-                                      MosekOpt<Scalar>::ToMosek(this->getConstraintBoundType(row)), /* Bound key.*/
+                                      MosekOpt<Scalar>::getBoundTypeCustom(this->getConstraintBoundType(row)), /* Bound key.*/
                                       this->getConstraintLowerBound(row),                           /* Numerical value of lower bound.*/
                                       this->getConstraintUpperBound(row) );                         /* Numerical value of upper bound.*/
             }
@@ -267,21 +267,41 @@ update( bool verbose )
             if ( _r == MSK_RES_OK )
             {
                 _r = MSK_writedata( _task, "mosek.lp" );
-                if ( _r == MSK_RES_OK )
+                if ( _r != MSK_RES_OK )
                 {
-                    std::cerr << "[" << __func__ << "]: " << "Writedata did not work" << std::endl;
+                    std::cerr << "[" << __func__ << "]: " << "Writedata did not work" << (int)_r << std::endl;
                 }
             }
         }
+    }
+
+    if ( _r == MSK_RES_OK )
+    {
+        this->_x.setZero();
+        this->_updated = true;
     }
 
     // return error code
     return _r;
 } // ...MosekOpt::update()
 
+template <typename _Scalar> void
+MosekOpt<_Scalar>::_storeSolution( double* xx, int n )
+{
+    this->_x.resize( n, 1 ); // Eigen vector
+    for ( int i = 0; i != n; ++i )
+        this->_x[i] = xx[i];
+}
+
 template <typename _Scalar> typename MosekOpt<_Scalar>::ReturnType
 MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_sense )
 {
+    if ( !this->_updated )
+    {
+        std::cerr << "[" << __func__ << "]: " << "Please call update() first!" << std::endl;
+        return MSK_RES_ERR_UNKNOWN;
+    }
+
     // cache problem size
     const int numvar = this->getVarCount();
 
@@ -360,14 +380,8 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
                                   MSK_SOL_ITR,    /* Request the basic solution. */
                                   xx);
 
+                        _storeSolution( xx, numvar );
                         printf("Optimal primal solution\n");
-                        if ( x_out ) { x_out->clear(); x_out->reserve(numvar); }
-                        for( int j=0; j<numvar; ++j)
-                        {
-                            if ( x_out )
-                                x_out->push_back( xx[j] );
-                            //printf("x[%d]: %e\n",j,xx[j]);
-                        }
                     }
                     else
                     {
@@ -422,29 +436,16 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
                     MSK_getxx(_task,
                               MSK_SOL_ITG,    /* Request the integer solution. */
                               xx);
-
+                    _storeSolution( xx, numvar );
                     printf("Optimal integer solution.\n");
-                    if ( x_out ) { x_out->clear(); x_out->reserve(numvar); }
-                    for( int j=0; j<numvar; ++j)
-                    {
-                        if ( x_out )
-                            x_out->push_back( xx[j] );
-                        //printf("x[%d]: %e\n",j,xx[j]);
-                    }
+
                     break;
 
                 case MSK_SOL_STA_PRIM_FEAS:
                     /* A feasible but not necessarily optimal solution was located. */
                     MSK_getxx(_task,MSK_SOL_ITG,xx);
-
+                    _storeSolution( xx, numvar );
                     printf("Feasible solution.\n");
-                    if ( x_out ) { x_out->clear(); x_out->reserve(numvar); }
-                    for( int j=0; j<numvar; ++j)
-                    {
-                        if ( x_out )
-                            x_out->push_back( xx[j] );
-                        //printf("x[%d]: %e\n",j,xx[j]);
-                    }
                     break;
 
                 default:
@@ -467,6 +468,19 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
                          symname,
                          desc);
         printf("Error %s - '%s'\n",symname,desc);
+    }
+    else
+    {
+        // output
+        if ( x_out )
+        {
+            x_out->clear();
+            x_out->reserve( this->_x.size() );
+            for ( int j=0; j < this->_x.size(); ++j )
+            {
+                x_out->push_back( this->_x[j] );
+            }
+        }
     }
 
     return _r;
@@ -513,7 +527,7 @@ MosekOpt<_Scalar>::checkSolution( std::vector<_Scalar> x, Eigen::Matrix<_Scalar,
 }
 
 template <typename _Scalar> MSKboundkeye
-MosekOpt<_Scalar>::ToMosek( typename MosekOpt<_Scalar>::BOUND bound )
+MosekOpt<_Scalar>::getBoundTypeCustom( typename MosekOpt<_Scalar>::BOUND bound )
 {
     switch( bound )
     {
@@ -540,7 +554,7 @@ MosekOpt<_Scalar>::ToMosek( typename MosekOpt<_Scalar>::BOUND bound )
 } // ...MosekOpt::ToMosek( bound )
 
 template <typename _Scalar> MSKvariabletypee
-MosekOpt<_Scalar>::ToMosek( MosekOpt<_Scalar>::VAR_TYPE var_type )
+MosekOpt<_Scalar>::getVarTypeCustom( MosekOpt<_Scalar>::VAR_TYPE var_type )
 {
     switch( var_type  )
     {

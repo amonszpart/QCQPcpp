@@ -1,4 +1,5 @@
 #include "qcqpcpp/mosekOptProblem.h"
+#include "qcqpcpp/bonminOptProblem.h"
 
 inline qcqpcpp::MosekOpt<double>::BOUND toSGBound( MSKboundkeye bound )
 {
@@ -91,7 +92,7 @@ int testQC()
                 coeffs[ asub[aptrb[i] + cid] ] = aval[ aptrb[i] + cid ];
             }
             std::cout<<"coeffs:";for(size_t vi=0;vi!=coeffs.size();++vi)std::cout<<coeffs[vi]<<" ";std::cout << "\n";
-            mosek.addLinConstraint( coeffs, toSGBound(bkc[i]), blc[i], buc[i] );
+            mosek.addLinConstraint( toSGBound(bkc[i]), blc[i], buc[i], coeffs );
         }
 
         // set QConstraints
@@ -355,20 +356,82 @@ int testQC()
     }
     MSK_deleteenv(&env);
 
+    int passed = 0;
     std::cout<<"x_out:\n";
     for ( size_t vi = 0; vi != x_out.size(); ++vi )
     {
+        if ( x_out[vi] != gt_out[vi] )
+            ++passed;
         std::cout << "\tx(" << vi << ")=\t" << x_out[vi] << ((x_out[vi] == gt_out[vi]) ? " =OK= " : " =!NOT!= ") << gt_out[vi] << "(gt)" << std::endl;
     }
     std::cout << "\n";
-    return ( r );
+
+    return ( r + passed );
+}
+
+int testBonmin()
+{
+    typedef double Scalar;
+
+    qcqpcpp::BonminOpt<Scalar> problem;
+    problem.printSolutionAtEndOfAlgorithm();
+
+    Eigen::Matrix<Scalar,-1,1> qo(4,1); qo << 100.2714996337891, 100.6660919189453
+                                            , 100.4376068115234, 101.2251129150391;
+    for ( int j = 0; j != qo.rows(); ++j )
+        problem.addVariable( qcqpcpp::OptProblem<Scalar>::BOUND::RANGE, Scalar(0), Scalar(1), qcqpcpp::OptProblem<Scalar>::VAR_TYPE::BINARY );
+
+    problem.setLinObjectives( qo );
+    std::cout<<"[" << __func__ << "]: " << "linobj ok" << std::endl; fflush(stdout);
+    qcqpcpp::BonminOpt<Scalar>::SparseMatrix Qo(4,4);
+    Qo.insert( 0, 1 ) = 0.5713889002799988;
+    Qo.insert( 1, 2 ) = 0.5713889002799988;
+    Qo.insert( 0, 3 ) = 0.9172399044036865;
+    Qo.insert( 1, 3 ) = 0.7175261378288269;
+    Qo.insert( 2, 3 ) = 0.9172399044036865;
+    problem.setQObjectives( Qo );
+    std::cout<<"[" << __func__ << "]: " << "qobj ok" << std::endl; fflush(stdout);
+
+    qcqpcpp::BonminOpt<Scalar>::SparseMatrix A(2,4);
+    A.insert( 0, 0 ) = 1;
+    A.insert( 0, 3 ) = 1;
+    A.insert( 1, 1 ) = 1;
+    A.insert( 1, 2 ) = 1;
+    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.setLinConstraints( A );
+    std::cout<<"[" << __func__ << "]: " << "lincon ok" << std::endl; fflush(stdout);
+
+    problem.update( true );
+    std::vector<Scalar> x_out;
+    problem.optimize( &x_out, qcqpcpp::OptProblem<Scalar>::MINIMIZE );
+    // expected outcome: 1 0 1 0;
+    const std::vector<Scalar> x_gt = { 1, 0, 1, 0};
+    if ( std::equal(x_out.begin(), x_out.end(), x_gt.begin()) )
+    {
+        std::cout << "[" << __func__ << "]: " << "BonminTest PASSED" << std::endl;
+        return 0;
+    }
+    else
+    {
+        std::cerr << "[" << __func__ << "]: " << "BonminTest FAILED" << std::endl;
+        return 1;
+    }
 }
 
 int main( int argc, char **argv )
 {
     typedef double Scalar;
-    using qcqpcpp::MosekOpt;
+    int err = EXIT_SUCCESS;
 
-    return testQC();
+    err += testBonmin();
+    err += testQC();
+
+    if ( err == EXIT_SUCCESS )
+        std::cout << "[" << __func__ << "]: " << "all tests PASSED" << std::endl;
+    else
+        std::cerr << "[" << __func__ << "]: " << err << " tests FAILED" << std::endl;
+
+    return err;
 }
 

@@ -13,6 +13,7 @@ class OptProblem
     public:
         typedef _Scalar                                     Scalar;         //!< \brief Some implementations require this to be double (i.e. Mosek does).
         typedef _ReturnType                                 ReturnType;     //!< \brief General returntype of the library used, int or MSKrescodee, etc..
+        typedef Eigen::Matrix<_Scalar,-1,1>                 VectorX;
         typedef Eigen::Triplet<Scalar>                      SparseEntry;    //!< \brief This type is an element of a list of entries before construction of a SparseMatrix.
         typedef std::vector<SparseEntry>                    SparseEntries;  //!< \brief A list of entries before construction. SparseMatrices are created in a lazy fashion.
         typedef Eigen::SparseVector<Scalar,Eigen::RowMajor> SparseVector;   //!< \brief
@@ -41,7 +42,7 @@ class OptProblem
                                                                           OBJ_SENSE            objecitve_sense = OBJ_SENSE::MINIMIZE ) { std::cerr << "[" << __func__ << "]: " << "Please override with library specific set-up logic. See MosekOpt.h for concept." << std::endl; return _ReturnType(EXIT_FAILURE); }
 
         //! \brief Constructor unused for the moment. Start with <i>addVariable()</i>.
-        //                                       OptProblem             () {}
+                                                  OptProblem             () : _updated(false) {}
         //! \brief Destructor unused for the moment. Declared virtual for inheritence.
         virtual                                  ~OptProblem            () { std::cout << "[" << __func__ << "][INFO]: " << "Empty destructor" << std::endl; }
 
@@ -146,6 +147,7 @@ class OptProblem
 
         //! \brief Prints inner state before optimization
         inline int                               printProblem           ()        const;
+        inline void                              setSolution            ( VectorX const& sol ) { _x = sol; }
 
     protected:
         // Variables: _blx <= X <= _buc
@@ -165,6 +167,9 @@ class OptProblem
         std::vector<Scalar>         _buc;                 //!< \brief Constraints numerical value of upper bounds
         SparseEntries               _linConstrList;       //!< \brief Stores values to construct the A linear constraint matrix, unordered. (A, A.cols = n = # of vars, A.rows = m = # of constraints)
         std::vector<SparseEntries>  _quadConstrList;      //!< \brief Accumulator for Quadratic constraint values                           [Q0, Q1, ... Qi ... Qm ]
+
+        bool                        _updated;             //!< \brief This has to be flipped to true by calling update() for optimize() to run.
+        VectorX                     _x;                   //!< \brief Optimize() stores the solution here when finishing.
 }; // ...class SGOpt
 
 } // ... namespace qcqpcpp

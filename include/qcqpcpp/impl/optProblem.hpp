@@ -179,14 +179,14 @@ OptProblem<_Scalar,_ReturnType>::addLinConstraint( BOUND bound_type, Scalar lowe
     // OR coeffs[0] * x_0 + coeffs[1] * x_1 ... + coeffs[n] * x_n =  lower_bound = upper_bound, bound_type == BOUND::FIXED
     if ( coeffs.size() != getVarCount() )
     {
-        std::cerr << "[" << __func__ << "]: " << "A line in the constraints matrix A has to be varCount " << getVarCount() << " long, not " << coeffs->size() << std::endl;
+        std::cerr << "[" << __func__ << "]: " << "A line in the constraints matrix A has to be varCount " << getVarCount() << " long, not " << coeffs.size() << std::endl;
         return EXIT_FAILURE;
     }
 
     // prepare
     SparseMatrix row_vector( 1, coeffs.size() );
     // add coeffs from new line
-    for ( size_t col = 0; col != coeffs->size(); ++col )
+    for ( size_t col = 0; col != coeffs.size(); ++col )
     {
         // add non-zero elements to sparse representation
         if ( coeffs[col] != Scalar(0) )

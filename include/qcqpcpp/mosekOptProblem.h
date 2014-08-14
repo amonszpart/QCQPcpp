@@ -34,8 +34,8 @@ class MosekOpt : public OptProblem<_Scalar,MSKrescodee>
         MosekOpt( MSKenv_t *env = NULL );
         virtual ~MosekOpt();
 
-        static inline MSKboundkeye     ToMosek( typename ParentType::BOUND bound );
-        static inline MSKvariabletypee ToMosek( typename ParentType::VAR_TYPE var_type );
+        static inline MSKboundkeye     getBoundTypeCustom( typename ParentType::BOUND bound );
+        static inline MSKvariabletypee getVarTypeCustom( typename ParentType::VAR_TYPE var_type );
 
         Eigen::Matrix<_Scalar,3,1> checkSolution( std::vector<_Scalar> x, Eigen::Matrix<_Scalar,3,1> weights ) const;
 
@@ -44,6 +44,8 @@ class MosekOpt : public OptProblem<_Scalar,MSKrescodee>
         MSKenv_t                  _env;
         bool                      _ownsEnv;
         MSKtask_t                 _task;                //!< \brief One "Problem" in Mosek
+
+        inline void _storeSolution( double* xx, int n ); //!< \brief Optimize() calls this to store output in OptProblem::_x.
     private:
 //        MosekOpt();
 
