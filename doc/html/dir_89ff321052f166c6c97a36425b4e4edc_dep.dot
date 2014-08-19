@@ -1,0 +1,9 @@
+digraph "include/qcqpcpp/impl" {
+  compound=true
+  node [ fontsize="10", fontname="Helvetica"];
+  edge [ labelfontsize="10", labelfontname="Helvetica"];
+  subgraph clusterdir_d45cdcab7aed55ceebc00a1bb83684e7 {
+    graph [ bgcolor="#ddddee", pencolor="black", label="qcqpcpp" fontname="Helvetica", fontsize="10", URL="dir_d45cdcab7aed55ceebc00a1bb83684e7.html"]
+  dir_89ff321052f166c6c97a36425b4e4edc [shape=box, label="impl", style="filled", fillcolor="#eeeeff", pencolor="black", URL="dir_89ff321052f166c6c97a36425b4e4edc.html"];
+  }
+}

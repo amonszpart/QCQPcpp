@@ -6,10 +6,6 @@
 #include "Eigen/Sparse"
 #include "qcqpcpp/optProblem.h"
 
-#warning ":LSJDF:LSDJ:LSDJFL:SJD"
-using namespace  Ipopt;
-using namespace Bonmin;
-
 namespace qcqpcpp
 {
 
@@ -19,15 +15,15 @@ class BonminOptException : public std::runtime_error
 };
 
 template <typename _Scalar>
-class BonminOpt : public qcqpcpp::OptProblem<_Scalar,int>
+class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
 {
         typedef Eigen::Matrix<_Scalar,1,-1> VectorX;
         enum { NeedsToAlign = (sizeof(VectorX)%16)==0 };
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF(NeedsToAlign)
 
-        typedef typename qcqpcpp::OptProblem<_Scalar,int>               ParentType;
-        typedef typename ParentType::SparseMatrix                       SparseMatrix;
+        typedef typename qcqpcpp::OptProblem<_Scalar>               ParentType;
+        typedef typename ParentType::SparseMatrix                   SparseMatrix;
 
         //! \brief BonminOpt    Default constructor.
         BonminOpt()
@@ -37,19 +33,11 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar,int>
         //! \brief ~BonminOpt   virtual destructor.
         virtual ~BonminOpt() {}
 
-        //! \brief BonminOpt    Copy constructor.
-//        BonminOpt(const BonminOpt &other)
-//            : _printSol(other._printSol)
-//            , _debug(false) {}
-
-        //! \brief operator=    Assignment operator. No data = nothing to assign.
-        //MyTMINLP& operator=(const MyTMINLP&) {}
-
         /** \name Functions from OptProblem. */
         //@{
         //! \brief update               main Sets up problem tailored to solver. Bonminopt needs jacobian and hessian computation.
         //! \param verbose              Controls logging to console.
-        virtual int update( bool verbose /* = false */ );
+        virtual int update( bool verbose = false  );
 
         //! \brief optimize             Runs optimization. Please call update before.
         //! \param x_out                Output values.
@@ -59,7 +47,7 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar,int>
         virtual _Scalar getINF() const override { return std::numeric_limits<_Scalar>::max(); } //DBL_MAX
         //@}
 
-        static inline TMINLP::VariableType getVarTypeCustom( typename ParentType::VAR_TYPE var_type );
+        static inline Bonmin::TMINLP::VariableType getVarTypeCustom( typename ParentType::VAR_TYPE var_type );
         inline SparseMatrix const&  getJacobian            ()        const { return _jacobian; }
         inline SparseMatrix const&  getHessian             ()        const { return _hessian; }
         inline VectorX      const&  getCachedqo            ()        const { return _qo; }
@@ -85,11 +73,12 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar,int>
 }; //...class BonminOpt
 
 template <typename _Scalar>
-class BonminTMINLP : public TMINLP
+class BonminTMINLP : public Bonmin::TMINLP
 {
     public:
-        typedef typename qcqpcpp::OptProblem<_Scalar,int>               ParentType;
+        typedef typename qcqpcpp::OptProblem<_Scalar>                   ParentType;
         typedef typename ParentType::VectorX                            VectorX;
+        typedef typename ParentType::SparseMatrix                       SparseMatrix;
         typedef          Eigen::Map<const Eigen::Matrix<_Scalar,-1,1> > MatrixMapT;
 
         BonminTMINLP( BonminOpt<_Scalar> &delegate ) : _delegate( delegate ) {}
@@ -102,15 +91,15 @@ class BonminTMINLP : public TMINLP
         //! \brief get_variables_types  Pass the type of the variables (INTEGER, BINARY, CONTINUOUS) to the optimizer.
         //! \param n                    size of var_types (has to be equal to the number of variables in the problem)
         //! \param var_types            types of the variables (has to be filled by function).
-        virtual bool get_variables_types( Index n, VariableType* var_types );
+        virtual bool get_variables_types( Ipopt::Index n, VariableType* var_types );
 
         //! \brief get_variables_linearity      Pass info about linear and nonlinear variables.
-        virtual bool get_variables_linearity(Index n, Ipopt::TNLP::LinearityType* var_types);
+        virtual bool get_variables_linearity( Ipopt::Index n, Ipopt::TNLP::LinearityType* var_types);
 
         //! \brief get_constraints_linearity    Pass the type of the constraints (LINEAR, NON_LINEAR) to the optimizer.
         //! \param m                    Size of const_types (has to be equal to the number of constraints in the problem)
         //! \param const_types          Types of the constraints (has to be filled by function).
-        virtual bool get_constraints_linearity(Index m, Ipopt::TNLP::LinearityType* const_types);
+        virtual bool get_constraints_linearity( Ipopt::Index m, Ipopt::TNLP::LinearityType* const_types);
         //@}
 
         /** \name Overloaded functions defining a TNLP.
@@ -124,7 +113,7 @@ class BonminTMINLP : public TMINLP
         //! \param nnz_h_lag            Number of nonzeroes in Hessian of the Lagrangean.
         //! \param index_style          Indicate wether arrays are numbered from 0 (C-style) or from 1 (Fortran).
         //! \return true                in case of success.
-        virtual bool get_nlp_info( Index& n, Index&m, Index& nnz_jac_g, Index& nnz_h_lag, TNLP::IndexStyleEnum& index_style );
+        virtual bool get_nlp_info( Ipopt::Index& n, Ipopt::Index&m, Ipopt::Index& nnz_jac_g, Ipopt::Index& nnz_h_lag, Ipopt::TNLP::IndexStyleEnum& index_style );
 
         //! \brief get_bounds_info      Method to pass the bounds on variables and constraints to Ipopt.
         //! \param n                    Size of x_l and x_u (has to be equal to the number of variables in the problem)
@@ -134,7 +123,7 @@ class BonminTMINLP : public TMINLP
         //! \param g_l                  Lower bounds of the constraints (function should fill it).
         //! \param g_u                  Upper bounds of the constraints (function should fill it).
         //! \return true                in case of success.
-        virtual bool get_bounds_info( Index n, Number* x_l, Number* x_u, Index m, Number* g_l, Number* g_u );
+        virtual bool get_bounds_info( Ipopt::Index n, Ipopt::Number* x_l, Ipopt::Number* x_u, Ipopt::Index m, Ipopt::Number* g_l, Ipopt::Number* g_u );
 
         //! \brief get_starting_point   Method to to pass the starting point for optimization to Ipopt.
         //! \param init_x               Do we initialize primals?
@@ -143,10 +132,10 @@ class BonminTMINLP : public TMINLP
         //! \param init_lambda          Do we initialize duals of constraints?
         //! \param lambda               Lower bounds of the constraints (function should fill it).
         //! \return true                in case of success.
-        virtual bool get_starting_point( Index n, bool init_x, Number* x,
-                                         bool init_z, Number* z_L, Number* z_U,
-                                         Index m, bool init_lambda,
-                                         Number* lambda );
+        virtual bool get_starting_point( Ipopt::Index n, bool init_x, Ipopt::Number* x,
+                                         bool init_z, Ipopt::Number* z_L, Ipopt::Number* z_U,
+                                         Ipopt::Index m, bool init_lambda,
+                                         Ipopt::Number* lambda );
 
         //! \brief eval_f               Method which compute the value of the objective function at point x.
         //! \param n                    size of array x (has to be the number of variables in the problem).
@@ -154,7 +143,7 @@ class BonminTMINLP : public TMINLP
         //! \param new_x                Is this the first time we evaluate functions at this point? (in the present context we don't care).
         //! \param obj_value            Value of objective in x (has to be computed by the function).
         //! \return true                in case of success.
-        virtual bool eval_f( Index n, const Number* x, bool new_x, Number& obj_value );
+        virtual bool eval_f( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Number& obj_value );
 
         //! \brief eval_grad_f          Method which compute the gradient of the objective at a point x.
         //! \param n                    Size of array x (has to be the number of variables in the problem).
@@ -162,7 +151,7 @@ class BonminTMINLP : public TMINLP
         //! \param new_x                Is this the first time we evaluate functions at this point? (in the present context we don't care).
         //! \param grad_f               Gradient of objective taken in x (function has to fill it).
         //! \return true                in case of success.
-        virtual bool eval_grad_f( Index n, const Number* x, bool new_x, Number* grad_f);
+        virtual bool eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Number* grad_f);
 
         //! \brief eval_g               Method which compute the value of the functions defining the constraints at a point x.
         //! \param n                    Size of array x (has to be the number of variables in the problem).
@@ -171,7 +160,7 @@ class BonminTMINLP : public TMINLP
         //! \param m                    Size of array g (has to be equal to the number of constraints in the problem)
         //! \param grad_f               Values of the constraints (function has to fill it).
         //! \return true                In case of success.
-        virtual bool eval_g( Index n, const Number* x, bool new_x, Index m, Number* g);
+        virtual bool eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Index m, Ipopt::Number* g);
 
         //! \brief eval_jac_g           Method to compute the Jacobian of the functions defining the constraints.
         //! \brief                      If the parameter values==NULL fill the arrays iCol and jRow which store the position of
@@ -183,9 +172,9 @@ class BonminTMINLP : public TMINLP
         //! \param m                    Size of array g (has to be equal to the number of constraints in the problem)
         //! \param grad_f               Values of the constraints (function has to fill it).
         //! \return true                in case of success.
-        virtual bool eval_jac_g( Index n, const Number* x, bool new_x,
-                                 Index m, Index nele_jac, Index* iRow, Index *jCol,
-                                 Number* values );
+        virtual bool eval_jac_g( Ipopt::Index n, const Ipopt::Number* x, bool new_x,
+                                 Ipopt::Index m, Ipopt::Index nele_jac, Ipopt::Index* iRow, Ipopt::Index *jCol,
+                                 Ipopt::Number* values );
 
         //! \brief eval_h               Method to compute the Jacobian of the functions defining the constraints.
         //! \brief                      If the parameter values==NULL fill the arrays iCol and jRow which store the position of
@@ -197,15 +186,15 @@ class BonminTMINLP : public TMINLP
         //! \param m                    Size of array g (has to be equal to the number of constraints in the problem)
         //! \param grad_f               Values of the constraints (function has to fill it).
         //! \return true                in case of success.
-        virtual bool eval_h( Index n, const Number* x, bool new_x,
-                             Number obj_factor, Index m, const Number* lambda,
-                             bool new_lambda, Index nele_hess, Index* iRow,
-                             Index* jCol, Number* values );
+        virtual bool eval_h( Ipopt::Index n, const Ipopt::Number* x, bool new_x,
+                             Ipopt::Number obj_factor, Ipopt::Index m, const Ipopt::Number* lambda,
+                             bool new_lambda, Ipopt::Index nele_hess, Ipopt::Index* iRow,
+                             Ipopt::Index* jCol, Ipopt::Number* values );
 
 
         //! \brief finalize_solution    Method called by Ipopt at the end of optimization.
         virtual void finalize_solution( TMINLP::SolverReturn status,
-                                        Index n, const Number* x, Number obj_value );
+                                        Ipopt::Index n, const Ipopt::Number* x, Ipopt::Number obj_value );
         //@}
 
         virtual const SosInfo      * sosConstraints() const { return NULL; }
@@ -222,6 +211,7 @@ class BonminTMINLP : public TMINLP
 #include <random>
 #include "coin/BonBonminSetup.hpp"
 #include "coin/BonCbc.hpp"          // Bab
+#include "coin/BonBabSetupBase.hpp" // Bonmin::IntParameter
 
 #define MYDEBUG 1
 namespace qcqpcpp
@@ -262,25 +252,47 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     }
 
     // Now initialize from tminlp
-    BonminSetup bonmin2;
+    Bonmin::BonminSetup bonmin2;
     bonmin2.initializeOptionsAndJournalist();
-    bonmin2.readOptionsString("bonmin.algorithm B-BB\n");
+    bonmin2.readOptionsString("bonmin.algorithm B-OA\n");
+    //bonmin2.setDoubleParameter( Bonmin::BabSetupBase::AllowableFractionGap, 1e-20 );
+    bonmin2.setDoubleParameter( Bonmin::BabSetupBase::MaxTime, 360 );
+
+    std::cout << "[" << __func__ << "]: " << "Bonmin::MaxNode = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxNodes ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::MaxIterations = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxIterations ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::BabLogInterval = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::BabLogInterval ) << std::endl;
+
+    std::cout << "[" << __func__ << "]: " << "Bonmin::CutoffDecr = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::CutoffDecr ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::Cutoff = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::Cutoff ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::AllowableGap = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::AllowableGap ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::AllowableFractionGap = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::AllowableFractionGap ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::IntTol = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::IntTol ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::MaxTime = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::MaxTime ) << std::endl;
+
     // need this relay, otherwise, we'll end up with a double free corruption thing
-    SmartPtr<BonminTMINLP<_Scalar> > problem = new BonminTMINLP<_Scalar>(*this);
+    Ipopt::SmartPtr<BonminTMINLP<_Scalar> > problem = new BonminTMINLP<_Scalar>(*this);
+    //bonmin2.options()->SetStringValue("derivative_test","second-order");
+    //bonmin2.options()->SetStringValue("derivative_test_print_all","yes");
+
     bonmin2.initialize( GetRawPtr(problem) );
+
+    //derivative_test_print_all
+    //bonmin.readOptionsString("bonmin.algorithm B-BB\n");
+    //bonmin.options()->SetNumericValue("bonmin.time_limit", 5); //changes bonmin's time limit
+    //bonmin.options()->SetStringValue("mu_oracle","loqo");
 
     // Set up done, now let's branch and bound
     try
     {
-        Bab bb;
+        Bonmin::Bab bb;
         bb( bonmin2 ); // process parameter file using Ipopt and do branch and bound using Cbc
     }
-    catch ( TNLPSolver::UnsolvedError *E )
+    catch ( Bonmin::TNLPSolver::UnsolvedError *E )
     {
         // There has been a failure to solve a problem with Ipopt.
         std::cerr << "Ipopt has failed to solve a problem" << std::endl;
     }
-    catch ( OsiTMINLPInterface::SimpleError &E )
+    catch ( Bonmin::OsiTMINLPInterface::SimpleError &E )
     {
         std::cerr << E.className() << "::" << E.methodName()
                   << std::endl
@@ -310,30 +322,30 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     return EXIT_SUCCESS;
 }
 
-template <typename _Scalar> TMINLP::VariableType
+template <typename _Scalar> Bonmin::TMINLP::VariableType
 BonminOpt<_Scalar>::getVarTypeCustom( typename ParentType::VAR_TYPE var_type )
 {
     switch ( var_type )
     {
         case ParentType::VAR_TYPE::CONTINUOUS:
-            return TMINLP::VariableType::CONTINUOUS;
+            return Bonmin::TMINLP::VariableType::CONTINUOUS;
             break;
         case ParentType::VAR_TYPE::INTEGER:
-            return TMINLP::VariableType::INTEGER;
+            return Bonmin::TMINLP::VariableType::INTEGER;
             break;
         case ParentType::VAR_TYPE::BINARY:
-            return TMINLP::VariableType::BINARY;
+            return Bonmin::TMINLP::VariableType::BINARY;
             break;
         default:
             std::cerr << "[" << __func__ << "]: " << "Unrecognized file type, returning continuous" << std::endl;
-            return TMINLP::VariableType::CONTINUOUS;
+            return Bonmin::TMINLP::VariableType::CONTINUOUS;
             break;
     } //... switch
 
 } //...BonminOpt::getVarTypeCustom()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_variables_types( Index n, VariableType* var_types )
+BonminTMINLP<_Scalar>::get_variables_types( Ipopt::Index n, VariableType* var_types )
 {
     if ( _delegate.isDebug() )
     {
@@ -355,7 +367,7 @@ BonminTMINLP<_Scalar>::get_variables_types( Index n, VariableType* var_types )
 } //...BonminOpt::get_variables_type()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_variables_linearity( Index n, Ipopt::TNLP::LinearityType* var_types )
+BonminTMINLP<_Scalar>::get_variables_linearity( Ipopt::Index n, Ipopt::TNLP::LinearityType* var_types )
 {
     if ( _delegate.isDebug() )
     {
@@ -379,7 +391,7 @@ BonminTMINLP<_Scalar>::get_variables_linearity( Index n, Ipopt::TNLP::LinearityT
 
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_constraints_linearity( Index m, Ipopt::TNLP::LinearityType* const_types )
+BonminTMINLP<_Scalar>::get_constraints_linearity( Ipopt::Index m, Ipopt::TNLP::LinearityType* const_types )
 {
     if ( _delegate.isDebug() )
     {
@@ -402,11 +414,11 @@ BonminTMINLP<_Scalar>::get_constraints_linearity( Index m, Ipopt::TNLP::Linearit
 } //...BonminOpt::get_constraints_linearity()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_nlp_info( Index                & n
-                                , Index                & m
-                                , Index                & nnz_jac_g
-                                , Index                & nnz_h_lag
-                                , TNLP::IndexStyleEnum & index_style )
+BonminTMINLP<_Scalar>::get_nlp_info( Ipopt::Index                & n
+                                   , Ipopt::Index                & m
+                                   , Ipopt::Index                & nnz_jac_g
+                                   , Ipopt::Index                & nnz_h_lag
+                                   , Ipopt::TNLP::IndexStyleEnum & index_style )
 {
     if ( _delegate.isDebug() )
     {
@@ -419,7 +431,7 @@ BonminTMINLP<_Scalar>::get_nlp_info( Index                & n
     m           = _delegate.getConstraintCount();   // number of constraints
     nnz_jac_g   = _delegate.getJacobian().nonZeros();        // number of non zeroes in Jacobian
     nnz_h_lag   = _delegate.getHessian().nonZeros();          // number of non zeroes in Hessian of Lagrangean
-    index_style = TNLP::C_STYLE;                // zero-indexed
+    index_style = Ipopt::TNLP::C_STYLE;                // zero-indexed
 
     if ( _delegate.isDebug() )
     {
@@ -430,12 +442,12 @@ BonminTMINLP<_Scalar>::get_nlp_info( Index                & n
 } //...BonminOpt::get_nlp_info()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_bounds_info( Index    n
-                                   , Number * x_l
-                                   , Number * x_u
-                                   , Index    m
-                                   , Number * g_l
-                                   , Number * g_u )
+BonminTMINLP<_Scalar>::get_bounds_info( Ipopt::Index    n
+                                      , Ipopt::Number * x_l
+                                      , Ipopt::Number * x_u
+                                      , Ipopt::Index    m
+                                      , Ipopt::Number * g_l
+                                      , Ipopt::Number * g_u )
 {
     if ( _delegate.isDebug() )
     {
@@ -488,15 +500,15 @@ BonminTMINLP<_Scalar>::get_bounds_info( Index    n
 } //...BonminOpt::get_bounds_info()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::get_starting_point( Index    n
+BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
                                       , bool     init_x
-                                      , Number * x
+                                      , Ipopt::Number * x
                                       , bool     init_z
-                                      , Number * z_L
-                                      , Number * z_U
-                                      , Index    m
+                                      , Ipopt::Number * z_L
+                                      , Ipopt::Number * z_U
+                                      , Ipopt::Index    m
                                       , bool     init_lambda
-                                      , Number * lambda )
+                                      , Ipopt::Number * lambda )
 {
     if ( _delegate.isDebug() )
     {
@@ -560,7 +572,7 @@ BonminTMINLP<_Scalar>::get_starting_point( Index    n
 } //...BonminOpt::get_starting_point()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::eval_f( Index n, const Number* x, bool new_x, Number& obj_value )
+BonminTMINLP<_Scalar>::eval_f( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Number& obj_value )
 {
     if ( _delegate.isDebug() )
     {
@@ -586,7 +598,7 @@ BonminTMINLP<_Scalar>::eval_f( Index n, const Number* x, bool new_x, Number& obj
 } //...BonminOpt::eval_f()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::eval_grad_f(Index n, const Number* x, bool new_x, Number* grad_f)
+BonminTMINLP<_Scalar>::eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Number* grad_f)
 {
     if ( _delegate.isDebug() )
     {
@@ -598,8 +610,25 @@ BonminTMINLP<_Scalar>::eval_grad_f(Index n, const Number* x, bool new_x, Number*
     if ( n != _delegate.getVarCount() )
         throw new BonminOptException( "[BonminOpt::eval_grad_f] n != getVarCount()" );
 
-  for ( int i = 0; i != _delegate.getVarCount(); ++i )
+    // first derivatives of linear objective function are the coefficients themselves
+    for ( int i = 0; i != _delegate.getVarCount(); ++i )
       grad_f[i] = _delegate.getCachedqo().coeff(i);
+
+    // first derivatives of quadrative objectives
+    SparseMatrix const& Qo( _delegate.getCachedQo() );
+    for ( int row = 0; row != Qo.outerSize(); ++row )
+    {
+        for ( typename SparseMatrix::InnerIterator it(Qo,row); it; ++it )
+        {
+            if ( it.row() < it.col() )
+                std::cerr << "[" << __func__ << "]: " << "asdfadfasdf" << std::endl;
+
+            // (d/dx_i)f += c_i,j * x_j
+            grad_f[ it.row() ] += it.value() * x[ it.col() ];
+            // (d/dx_j)f += c_i,j * x_i
+            grad_f[ it.col() ] += it.value() * x[ it.row() ];
+        }
+    }
 
 //  grad_f[0] = -1.;
 //  grad_f[1] = -1.;
@@ -616,7 +645,7 @@ BonminTMINLP<_Scalar>::eval_grad_f(Index n, const Number* x, bool new_x, Number*
 } //...BonminOpt::eval_grad_f()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::eval_g( Index n, const Number* x, bool new_x, Index m, Number* g )
+BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Index m, Ipopt::Number* g )
 {
     if ( _delegate.isDebug() )
     {
@@ -652,14 +681,14 @@ BonminTMINLP<_Scalar>::eval_g( Index n, const Number* x, bool new_x, Index m, Nu
 } //...BonminOpt::eval_g()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::eval_jac_g( Index         n
-                              , Number const* x
+BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
+                              , Ipopt::Number const* x
                               , bool          new_x
-                              , Index         m
-                              , Index         nnz_jac
-                              , Index       * iRow
-                              , Index       * jCol
-                              , Number      * values )
+                              , Ipopt::Index         m
+                              , Ipopt::Index         nnz_jac
+                              , Ipopt::Index       * iRow
+                              , Ipopt::Index       * jCol
+                              , Ipopt::Number      * values )
 {
     bool ret_val = false;
 
@@ -749,17 +778,17 @@ BonminTMINLP<_Scalar>::eval_jac_g( Index         n
 } // ... BonminOpt::eval_jac_g()
 
 template <typename _Scalar> bool
-BonminTMINLP<_Scalar>::eval_h( Index          n
-                          , Number const * x
+BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
+                          , Ipopt::Number const * x
                           , bool           new_x
-                          , Number         obj_factor
-                          , Index          m
-                          , Number const * lambda
+                          , Ipopt::Number         obj_factor
+                          , Ipopt::Index          m
+                          , Ipopt::Number const * lambda
                           , bool           new_lambda
-                          , Index          nele_hess
-                          , Index        * iRow
-                          , Index        * jCol
-                          , Number       * values )
+                          , Ipopt::Index          nele_hess
+                          , Ipopt::Index        * iRow
+                          , Ipopt::Index        * jCol
+                          , Ipopt::Number       * values )
 {
     bool ret_val = false;
 
@@ -801,7 +830,7 @@ BonminTMINLP<_Scalar>::eval_h( Index          n
             for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(_delegate.getHessian(),row);
                   it; ++it, ++entry_id )
             {
-                values[ entry_id ] = it.value();
+                values[ entry_id ] = it.value() * obj_factor;
             } // ...for col
         } // ...for row
         ret_val = true;
@@ -827,9 +856,9 @@ BonminTMINLP<_Scalar>::eval_h( Index          n
 
 template <typename _Scalar> void
 BonminTMINLP<_Scalar>::finalize_solution( TMINLP::SolverReturn   status
-                                        , Index                  n
-                                        , Number const         * x
-                                        , Number                 obj_value )
+                                        , Ipopt::Index                  n
+                                        , Ipopt::Number const         * x
+                                        , Ipopt::Number                 obj_value )
 {
     std::cout << "Problem status: "  << status    << std::endl;
     std::cout << "Objective value: " << obj_value << std::endl;

@@ -25,7 +25,7 @@ INCLUDE_DIRECTORIES( ${MOSEK_DIR}/h )
 
 ##_____________________________________________________________________________
 # Bonmin
-SET( BONMIN_INCLUDE_DIRECTORIES
+SET( BONMIN_INCLUDE_DIRS
     ${BONMIN_DIR}/include
 )
 SET( BONMIN_LIBRARIES
@@ -48,7 +48,7 @@ SET( BONMIN_LIBRARIES
 INCLUDE_DIRECTORIES(
     include
     /usr/include/eigen3/
-    ${BONMIN_INCLUDE_DIRECTORIES}
+    ${BONMIN_INCLUDE_DIRS}
 )
 
 SET( H_LIST

@@ -113,8 +113,15 @@ int testQC()
         else
             std::cerr << "mosek.finalize returns: " << r << ", MSK_RES_OK: " << (int)MSK_RES_OK << std::endl;
 
-        mosek.printProblem();
-        mosek.optimize( &x_out );
+        mosek.write("test_mosek");
+
+        // test io
+        qcqpcpp::OptProblem<Scalar> optProblem;
+        optProblem.read ("test_mosek/problem.proj");
+        qcqpcpp::MosekOpt<Scalar> mosek2( optProblem );
+        mosek2.update();
+        mosek2.printProblem();
+        mosek2.optimize( &x_out );
         std::cout<<"x_out:";for(size_t vi=0;vi!=x_out.size();++vi)std::cout<<x_out[vi]<<" ";std::cout << "\n";
         std::cout << std::endl << std::endl;
     }
@@ -358,7 +365,7 @@ int testQC()
 
     int passed = 0;
     std::cout<<"x_out:\n";
-    for ( size_t vi = 0; vi != x_out.size(); ++vi )
+    for ( size_t vi = 0; vi != gt_out.size(); ++vi )
     {
         if ( x_out[vi] != gt_out[vi] )
             ++passed;
@@ -397,8 +404,8 @@ int testBonmin()
     A.insert( 0, 3 ) = 1;
     A.insert( 1, 1 ) = 1;
     A.insert( 1, 2 ) = 1;
-    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
-    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.addConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.addConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
     problem.setLinConstraints( A );
     std::cout<<"[" << __func__ << "]: " << "lincon ok" << std::endl; fflush(stdout);
 
@@ -419,12 +426,97 @@ int testBonmin()
     }
 }
 
+#if 0
+int testDeriv()
+{
+    using namespace Ipopt;
+    typedef double Scalar;
+
+    qcqpcpp::BonminOpt<Scalar> problem;
+    problem.printSolutionAtEndOfAlgorithm();
+
+    Eigen::Matrix<Scalar,-1,1> qo(4,1); qo << 100.2714996337891, 100.6660919189453
+                                            , 100.4376068115234, 101.2251129150391;
+    for ( int j = 0; j != qo.rows(); ++j )
+        problem.addVariable( qcqpcpp::OptProblem<Scalar>::BOUND::RANGE, Scalar(0), Scalar(1), qcqpcpp::OptProblem<Scalar>::VAR_TYPE::BINARY );
+
+    problem.setLinObjectives( qo );
+    std::cout<<"[" << __func__ << "]: " << "linobj ok" << std::endl; fflush(stdout);
+    qcqpcpp::BonminOpt<Scalar>::SparseMatrix Qo(4,4);
+    Qo.insert( 0, 1 ) = 0.5713889002799988;
+    Qo.insert( 1, 2 ) = 0.5713889002799988;
+    Qo.insert( 0, 3 ) = 0.9172399044036865;
+    Qo.insert( 1, 3 ) = 0.7175261378288269;
+    Qo.insert( 2, 3 ) = 0.9172399044036865;
+    problem.setQObjectives( Qo );
+    std::cout<<"[" << __func__ << "]: " << "qobj ok" << std::endl; fflush(stdout);
+
+    qcqpcpp::BonminOpt<Scalar>::SparseMatrix A(2,4);
+    A.insert( 0, 0 ) = 1;
+    A.insert( 0, 3 ) = 1;
+    A.insert( 1, 1 ) = 1;
+    A.insert( 1, 2 ) = 1;
+    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.addLinConstraint( qcqpcpp::OptProblem<Scalar>::BOUND::GREATER_EQ, Scalar(1), problem.getINF(), /* coeffs: */ NULL );
+    problem.setLinConstraints( A );
+    std::cout<<"[" << __func__ << "]: " << "lincon ok" << std::endl; fflush(stdout);
+
+
+    // Create a new instance of your nlp
+    //  (use a SmartPtr, not raw)
+    SmartPtr<qcqpcpp::BonminTMINLP<Scalar> > mynlp = new qcqpcpp::BonminTMINLP<Scalar>( problem );
+
+    // Create a new instance of IpoptApplication
+    //  (use a SmartPtr, not raw)
+    // We are using the factory, since this allows us to compile this
+    // example with an Ipopt Windows DLL
+    SmartPtr<IpoptApplication> app = IpoptApplicationFactory();
+    //app->RethrowNonIpoptException(true);
+
+    // Change some options
+    // Note: The following choices are only examples, they might not be
+    //       suitable for your optimization problem.
+    app->Options()->SetNumericValue("tol", 1e-7);
+    app->Options()->SetStringValue("mu_strategy", "adaptive");
+    app->Options()->SetStringValue("output_file", "ipopt.out");
+    // The following overwrites the default name (ipopt.opt) of the
+    // options file
+    // app->Options()->SetStringValue("option_file_name", "hs071.opt");
+
+    // Initialize the IpoptApplication and process the options
+    ApplicationReturnStatus status;
+    status = app->Initialize();
+    if (status != Solve_Succeeded) {
+        std::cout << std::endl << std::endl << "*** Error during initialization!" << std::endl;
+        return (int) status;
+    }
+
+    // Ask Ipopt to solve the problem
+    status = app->OptimizeTNLP(mynlp);
+
+    if (status == Solve_Succeeded) {
+        std::cout << std::endl << std::endl << "*** The problem solved!" << std::endl;
+    }
+    else {
+        std::cout << std::endl << std::endl << "*** The problem FAILED!" << std::endl;
+    }
+
+    // As the SmartPtrs go out of scope, the reference count
+    // will be decremented and the objects will automatically
+    // be deleted.
+
+    return (int) status;
+}
+#endif
+
 int main( int argc, char **argv )
 {
+//    return testDeriv();
+
     typedef double Scalar;
     int err = EXIT_SUCCESS;
 
-    err += testBonmin();
+    //err += testBonmin();
     err += testQC();
 
     if ( err == EXIT_SUCCESS )

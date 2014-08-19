@@ -1,0 +1,7 @@
+digraph "Graphical Class Hierarchy"
+{
+  edge [fontname="Helvetica",fontsize="10",labelfontname="Helvetica",labelfontsize="10"];
+  node [fontname="Helvetica",fontsize="10",shape=record];
+  rankdir="LR";
+  Node1 [label="qcqpcpp::OptProblem\l\< _Scalar \>::Variable",height=0.2,width=0.4,color="black", fillcolor="white", style="filled",URL="$structqcqpcpp_1_1_opt_problem_1_1_variable.html",tooltip="Internal structure to store a variable. "];
+}

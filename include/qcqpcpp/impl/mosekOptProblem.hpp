@@ -7,14 +7,15 @@
 namespace qcqpcpp
 {
 
-template <typename _Scalar>
-MosekOpt<_Scalar>::MosekOpt( MSKenv_t *env )
-    : _r      ( MSK_RES_OK  )
-    , _env    ( env         )
-    , _ownsEnv( !env        ) // is true, if env == NULL
-    , _task   ( NULL        )
+template <typename _Scalar> void
+MosekOpt<_Scalar>::_init( MSKenv_t *env )
 {
-    if ( !_env )
+    this->_r        = MSK_RES_OK;
+    this->_env      = env;
+    this->_ownsEnv  = !env;
+    this->_task     = NULL;
+
+    if ( !this->_env )
     {
         _r = MSK_makeenv( &_env, NULL );
         if ( MSK_RES_OK != _r )
@@ -23,6 +24,12 @@ MosekOpt<_Scalar>::MosekOpt( MSKenv_t *env )
             return;
         }
     }
+} //...MosekOpt::_init()
+
+template <typename _Scalar>
+MosekOpt<_Scalar>::MosekOpt( MSKenv_t *env )
+{
+    this->_init( env );
 } // ... MosekOpt::MosekOpt()
 
 template <typename _Scalar>
@@ -39,6 +46,13 @@ MosekOpt<_Scalar>::~MosekOpt()
         MSK_deleteenv( &_env );
         _env = NULL;
     }
+}
+
+template <typename _Scalar>
+MosekOpt<_Scalar>::MosekOpt( ParentType const& other )
+    : ParentType( other )
+{
+    this->_init( NULL );
 }
 
 template <typename _Scalar> typename MosekOpt<_Scalar>::ReturnType
@@ -160,8 +174,8 @@ update( bool verbose )
         typename ParentType::SparseMatrix A( this->getLinConstraintsMatrix() );
 //        ( this->getConstraintCount(), this->getVarCount() );
 //        A.setFromTriplets( this->getLinConstraints().begin(), this->getLinConstraints().end() );
-        std::vector<Scalar>         aval;                //!< \brief Linear constraints coeff matrix (sparse)
-        std::vector<int>            asub;                //!< \brief Linear constraints coeff matrix indices
+        std::vector<Scalar>         aval;                // Linear constraints coeff matrix (sparse)
+        std::vector<int>            asub;                // Linear constraints coeff matrix indices
         std::vector<int>            aptrb, aptre;
         for ( int row = 0; (row < A.outerSize()) && (MSK_RES_OK == _r); ++row )
         {
@@ -485,46 +499,6 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
 
     return _r;
 } // ...MosekOpt::optimize()
-
-template <typename _Scalar> Eigen::Matrix<_Scalar,3,1>
-MosekOpt<_Scalar>::checkSolution( std::vector<_Scalar> x, Eigen::Matrix<_Scalar,3,1> weights ) const // TODO: probably move to optproblem.h
-{
-    Eigen::Matrix<_Scalar,3,1> energy; energy.setZero();
-
-    SparseMatrix complexity( x.size(), 1 );
-    for ( int row = 0; row != x.size(); ++row )
-        complexity.insert( row, 0 ) = weights(2);
-
-    // X
-    SparseMatrix mx( x.size(), 1 );
-    for ( size_t i = 0; i != x.size(); ++i )
-        mx.insert( i, 0 ) = x[i];
-
-    SparseMatrix linObj = this->getLinObjectivesMatrix();
-    SparseMatrix data   = linObj - complexity;
-
-    // qo
-    SparseMatrix e02 = mx.transpose() * linObj;
-    std::cout << "[" << __func__ << "]: " << "qo * x = " << e02.coeffRef(0,0) << std::endl; fflush(stdout);
-
-    // datacost
-    SparseMatrix e0 = (mx.transpose() * data);
-    energy(0) = e0.coeffRef(0,0);
-    //std::cout << "[" << __func__ << "]: " << "data: " << energy(0) << std::endl; fflush(stdout);
-
-    // Qo
-    SparseMatrix e1 = mx.transpose() * this->getQuadraticObjectivesMatrix() * mx;
-    energy(1) = e1.coeffRef(0,0);
-    //std::cout << "[" << __func__ << "]: " << "x' * Qo * x = pw = " << energy(1) << std::endl; fflush(stdout);
-
-    // complexity
-    SparseMatrix e2 = mx.transpose() * complexity;
-    energy(2) = e2.coeffRef(0,0);
-    //std::cout << "[" << __func__ << "]: " << "complx = " << energy(2) << std::endl; fflush(stdout);
-    std::cout << "[" << __func__ << "]: " << std::setprecision(9) << energy(0) << " + " << energy(1) << " + " << energy(2) << " = " << energy.sum() << std::endl;
-
-    return energy;
-}
 
 template <typename _Scalar> MSKboundkeye
 MosekOpt<_Scalar>::getBoundTypeCustom( typename MosekOpt<_Scalar>::BOUND bound )
