@@ -367,7 +367,11 @@ template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
 OptProblem<_Scalar>::getQuadraticConstraintsMatrix( int i ) const
 {
     SparseMatrix mx( this->getVarCount(), this->getVarCount() );
-    mx.setFromTriplets( this->getQuadraticConstraints(i).begin(), this->getQuadraticConstraints(i).end() );
+
+    if ( this->getQuadraticConstraints().size() )
+    {
+        mx.setFromTriplets( this->getQuadraticConstraints(i).begin(), this->getQuadraticConstraints(i).end() );
+    }
 
     return mx;
 } // ...OptProblem::getLinConstraintsMatrix()

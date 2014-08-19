@@ -280,7 +280,7 @@ namespace  qcqpcpp
         std::cout << "wrote " << paths.back() << std::endl;
 
         // Qi
-        for ( int i = 0; i != this->getConstraintCount(); ++i )
+        for ( int i = 0; i != this->getQuadraticConstraints().size(); ++i )
         {
             paths.push_back( getQiName(i) );
             io::writeSparseMatrix( this->getQuadraticConstraintsMatrix(i), path + "/" + paths.back(), 0 );
