@@ -17,17 +17,17 @@ class OptProblem
         typedef Eigen::Matrix<_Scalar,-1,1>                 VectorX;        //!< \brief RowVector of unkown dimensions.
         typedef Eigen::Triplet<Scalar>                      SparseEntry;    //!< \brief This type is an element of a list of entries before construction of a SparseMatrix.
         typedef std::vector<SparseEntry>                    SparseEntries;  //!< \brief A list of entries before construction. SparseMatrices are created in a lazy fashion.
-        typedef Eigen::SparseVector<Scalar,Eigen::RowMajor> SparseVector;   //!< \brief
+        typedef Eigen::SparseVector<Scalar,Eigen::RowMajor> SparseVector;   //!< \brief Unused.
         typedef Eigen::SparseMatrix<Scalar,Eigen::RowMajor> SparseMatrix;   //!< \brief To store quadratic objective (Q_o) and quadratic constraints (Qi). SparseMatrices are created in a lazy fashion.
 
-        enum OBJ_SENSE   { MINIMIZE       //!< \brief Minimize objective function in optimize()
-                         , MAXIMIZE       //!< \brief Maximize objective function in optimize()
+        enum OBJ_SENSE   { MINIMIZE       //!< \brief Minimize objective function in #optimize()
+                         , MAXIMIZE       //!< \brief Maximize objective function in #optimize()
                          };
         enum VAR_TYPE    { CONTINUOUS = 0 //!< \brief Default
                          , INTEGER    = 1 //!< \brief Mixed Integer Programming
-                         , BINARY     = 2
+                         , BINARY     = 2 //!< \brief Binary integer programming. Some solvers allow this option to be set.
                          };
-        enum LINEARITY   { LINEAR     = 0
+        enum LINEARITY   { LINEAR     = 0 //!< \brief Default value.
                          , NON_LINEAR = 1 //!< \brief NOT USED, here for completeness sake
                          };
         enum BOUND       { GREATER_EQ = 0 //!< \brief Means: lower_bound < ... < +INF
@@ -47,8 +47,12 @@ class OptProblem
                 LINEARITY      _lin_x;               //!< \brief Vairable linearity.
         };
 
-        //static constexpr Scalar INF = 1.0e30; //!< \brief Used, when a bound direction is "unbounded"
-        virtual Scalar getINF() const { return std::numeric_limits<Scalar>::max(); }
+        //! \brief Virtual getter for the implementation specific infinity value. Used, when a bound direction is "unbounded"
+        //! \return The value infinity, i.e. DBL_MAX or MSK_INFINITY.
+        virtual Scalar                           getINF                 ()                const { return std::numeric_limits<Scalar>::max(); }
+        //!< \brief Virtual getter for implementation specific error code for "no error".
+        //! \return The int conversion of the code (i.e. 0).
+        virtual int                              getOkCode              ()                const { return 0; }
 
         //! \brief Make sure, to call before optimize is called, but AFTER the problem details are added using the setters below.
         virtual ReturnType                       update                 ( bool verbose = false )                                          { std::cerr << "[" << __func__ << "]: " << "Please override with library specific set-up logic. See MosekOpt.h for concept." << std::endl; return ReturnType(EXIT_FAILURE); }
@@ -57,7 +61,7 @@ class OptProblem
                                                                           OBJ_SENSE            objecitve_sense = OBJ_SENSE::MINIMIZE ) { std::cerr << "[" << __func__ << "]: " << "Please override with library specific set-up logic. See MosekOpt.h for concept." << std::endl; return ReturnType(EXIT_FAILURE); }
 
         //! \brief Constructor unused for the moment. Start with <i>addVariable()</i>.
-                                                  OptProblem             () : _updated(false) {}
+                                                  OptProblem             () : _updated(false), _time_limit( Scalar(-1) ), _tol_rel_gap( Scalar(-1) ) {}
         //! \brief Destructor unused for the moment. Declared virtual for inheritence.
         virtual                                  ~OptProblem            () { std::cout << "[" << __func__ << "][INFO]: " << "Empty destructor" << std::endl; }
 
@@ -171,13 +175,35 @@ class OptProblem
         inline std::vector<SparseEntries> const& getQuadraticConstraints        ()        const { return _quadConstrList; }     //!< \brief Returns vector of Qi entries, vector is ordered by i, but the entries are unordered.
         inline SparseMatrix                      getQuadraticConstraintsMatrix  ( int i ) const;                                //!< \brief Returns all Qi entries assembled to a Sparsematrix, temporarily.
 
-        //! \brief Prints inner state before optimization
-        inline int                               printProblem                   ()        const;
-        //! \brief Setter to store latest solution, to be called from optimize().
-        inline void                              setSolution                    ( VectorX const& sol ) { _x = sol; }
+        //! \brief              Prints inner state before optimization.
+        //! \param entry_limit  How many entries to print of each matrix.
+        inline int                               printProblem                   ( int entry_limit = 10 ) const;
 
-        inline int                               write                          ( std::string const& path ) const; //!< \brief Serialize to disk.
-        inline int                               read                           ( std::string const& proj_path ); //!< \brief Read from disk.
+        //! \brief Setter to store latest solution, to be called from #optimize().
+        inline void                              setSolution                    ( VectorX const& sol ) { _x = sol; }
+        //! \brief Setter to store latest solution, to be called from optimize().
+        //inline void                              setInitial                    ( VectorX const& sol ) { _x = sol; }
+
+        // IO
+        inline int                               write                          ( std::string const& path ) const;              //!< \brief Serialize to disk.
+        inline int                               read                           ( std::string        proj_path );               //!< \brief Read from disk.
+
+        // PARAMS
+        //! \brief            Set time limit to allow the implementation to run for.
+        //! \param time_limit The time limit to be set. Has to be > 0.
+        inline int                               setTimeLimit                   ( Scalar time_limit ) { _time_limit = time_limit; return EXIT_SUCCESS; }
+        inline Scalar                            getTimeLimit                   () const              { return _time_limit; }   //!< \brief Returns solver time limit parameter.
+        //! \brief             Set relative gap tolerance for the solver.
+        //! \param tol_rel_gap The gap tolerance to set.
+        inline int                               setTolRelGap                   ( Scalar tol_rel_gap) { _tol_rel_gap = tol_rel_gap; return EXIT_SUCCESS; }
+        inline Scalar                            getTolRelGap                   () const              { return _tol_rel_gap; }   //!< \brief Returns solver relative gap tolerance.
+
+        inline std::string                      getAuxName()                              const { return "aux.csv"; } //!< \brief File name constexpr to store variables and constraints. Used by #write().
+        inline std::string                      getqoName()                               const { return "qo.csv";  } //!< \brief File name constexpr to store linear objective vector. Used by #write().
+        inline std::string                      getQoName()                               const { return "Qo.csv";  } //!< \brief File name constexpr to store quadratic objective matrix. Used by #write().
+        inline std::string                      getAName()                                const { return "A.csv";   } //!< \brief File name constexpr to store linear constraints matrix. Used by #write().
+        //! \brief File name constexpr to store qaudratic constraints matrices. Used by #write().
+        inline std::string                      getQiName( int i )                        const { char id[255]; sprintf( id, "Q%d.csv", i ); return std::string( id ); }
 
     protected:
         // Variables: _blx <= X <= _buc
@@ -203,12 +229,11 @@ class OptProblem
         bool                        _updated;             //!< \brief This has to be flipped to true by calling update() for optimize() to run.
         VectorX                     _x;                   //!< \brief Optimize() stores the solution here when finishing.
 
-        inline std::string getAuxName() const { return "aux.csv"; }
-        inline std::string getqoName() const { return "qo.csv"; }
-        inline std::string getQoName() const { return "Qo.csv"; }
-        inline std::string getAName() const { return "A.csv"; }
-        inline std::string getQiName( int i ) const { char id[255]; sprintf( id, "Q%d.csv", i ); return std::string( id ); }
-        inline int         _parseAuxFile( std::string const& aux_file_path );
+        // Parameters
+        Scalar                      _time_limit;          //!< \brief Time limit to allow implementation to run for.
+        Scalar                      _tol_rel_gap;         //!< \brief Relative Gap tolerance.
+
+        inline int                              _parseAuxFile( std::string const& aux_file_path );                    //!< \brief Method to read variables and constraints from file. Used by #read().
 }; // ...class SGOpt
 
 } // ... namespace qcqpcpp
@@ -217,287 +242,5 @@ class OptProblem
 #   define QCQPCPP_INC_SGOPTPROBLEM_HPP
 #   include "qcqpcpp/impl/optProblem.hpp"
 #endif // QCQPCPP_INC_SGOPTPROBLEM_HPP
-
-#include "qcqpcpp/io/io.h"
-#include "sys/stat.h"
-namespace  qcqpcpp
-{
-    template <typename _Scalar> int
-    OptProblem<_Scalar>::write( std::string const& path ) const
-    {
-        std::cout << "creating " << path << std::endl;
-        mkdir( path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
-        std::vector<std::string> paths;
-
-        // vars
-        paths.push_back( getAuxName() );
-        {
-            std::ofstream aux_file( path + "/" + paths.back() );
-            if ( !aux_file.is_open() )
-            {
-                std::cerr << "[" << __func__ << "]: " << "could not open " << path + "/" + paths.back() << std::endl;
-                return EXIT_FAILURE;
-            }
-
-            aux_file << "# vars, constraints, objective bias (c)" << std::endl;
-            aux_file << this->getVarCount() << "," << this->getConstraintCount() << "," << this->getObjectiveBias() << std::endl;
-            aux_file << "# bound_type, var_type, lower_boud, upper_bound, linearity" << std::endl;
-            for ( int j = 0; j != this->getVarCount(); ++j )
-            {
-                aux_file << this->getVarBoundType(j) << ","
-                         << this->getVarType( j ) << ","
-                         << this->getVarLowerBound( j ) << ","
-                         << this->getVarUpperBound( j ) << ","
-                         << this->getVarLinearity( j )
-                         << std::endl;
-            } // for each variable
-            aux_file << "# bound_type, lower_boud, upper_bound, linearity" << std::endl;
-            for ( int i = 0; i != this->getConstraintCount(); ++i )
-            {
-                aux_file << this->getConstraintBoundType( i ) << ","
-                         << this->getConstraintLowerBound( i ) << ","
-                         << this->getConstraintUpperBound( i ) << ","
-                         << this->getConstraintLinearity( i )
-                         << std::endl;
-            } // for each variable
-
-            std::cout << "wrote " << paths.back() << std::endl;
-        } // vars file
-
-        // qo
-        paths.push_back(getqoName());
-        io::writeSparseMatrix( this->getLinObjectivesMatrix(), path + "/" + paths.back(), 0 );
-        std::cout << "wrote " << paths.back() << std::endl;
-
-        // Qo
-        paths.push_back(getQoName());
-        io::writeSparseMatrix( this->getQuadraticObjectivesMatrix(), path + "/" + paths.back(), 0 );
-        std::cout << "wrote " << paths.back() << std::endl;
-
-        // A
-        paths.push_back(getAName());
-        io::writeSparseMatrix( this->getLinConstraintsMatrix(), path + "/" + paths.back(), 0 );
-        std::cout << "wrote " << paths.back() << std::endl;
-
-        // Qi
-        for ( int i = 0; i != this->getQuadraticConstraints().size(); ++i )
-        {
-            paths.push_back( getQiName(i) );
-            io::writeSparseMatrix( this->getQuadraticConstraintsMatrix(i), path + "/" + paths.back(), 0 );
-            std::cout << "wrote " << paths.back() << std::endl;
-        }
-
-        std::string proj_path = path + "/problem.proj";
-        std::ofstream proj_file( proj_path );
-        if ( !proj_file.is_open() )
-        {
-            std::cerr << "[" << __func__ << "]: " << "could not open " << proj_path << std::endl;
-        }
-        for ( size_t i = 0; i != paths.size(); ++i )
-            proj_file << paths[i] << std::endl;
-
-        proj_file.close();
-        std::cout << "project written to " << proj_path << std::endl;
-
-        return EXIT_FAILURE;
-    } // ... Optproblem::write
-
-    template <typename _Scalar> int
-    OptProblem<_Scalar>::_parseAuxFile( std::string const& aux_file_path )
-    {
-        int err = EXIT_SUCCESS;
-
-        // open file
-        std::ifstream aux_file( aux_file_path );
-        if ( !aux_file.is_open() )
-        {
-            std::cerr << "[" << __func__ << "]: " << "Coult not open aux_file " << aux_file_path << std::endl;
-            return EXIT_FAILURE;
-        }
-
-        // parse lines
-        int         vars        = -1, // "uninited"
-                    constraints = -1; // "uninited"
-        int         lid         = -1; // -1 == there's an extra line to read first, the header
-        std::string line;             // tmp storage of read line
-        while ( getline(aux_file, line) )
-        {
-            // skip comment
-            if ( line[0] == '#') continue;
-
-            // parse line
-            std::istringstream iss( line );
-            std::string        word;
-            int                word_id = 0; // line parse state
-            Variable           tmp;         // output storage variable
-            while ( std::getline(iss, word, ',') )
-            {
-                if ( vars < 0 ) // header line
-                {
-                    vars = atoi( word.c_str() );        // parse number of variables
-                    std::getline(iss, word, ',');
-                    constraints = atoi( word.c_str() ); // parse number of constraints
-                    std::getline(iss, word, ',');
-                    this->_cfix = atof( word.c_str() ); // parse constant objective function bias
-
-                    std::cout << "bias is now " << this->getObjectiveBias()
-                              << " reading " << vars << " vars and " << constraints << " constraints"
-                              << std::endl;
-
-                    std::getline( iss, word );          // clear rest of line
-                }
-                else // variable or constraint line
-                {
-                    if ( lid < vars ) // variable line
-                    {
-                        switch ( word_id ) // bound_type, var_type, lower_boud, upper_bound, linearity
-                        {
-                            case 0: // Variable bound type
-                                tmp._bkx = static_cast<BOUND>( atoi(word.c_str()) );
-                                break;
-                            case 1: // Variable type (cont/integer/binary)
-                                tmp._type_x = static_cast<VAR_TYPE>( atoi(word.c_str()) );
-                                break;
-                            case 2: // Variable lower bound
-                                tmp._blx = atof( word.c_str() );
-                                break;
-                            case 3: // Variable upper bound
-                                tmp._bux = atof( word.c_str() );
-                                break;
-                            case 4: // Variable linearity
-                                tmp._lin_x = static_cast<LINEARITY>( atoi(word.c_str()) );
-                                break;
-                            default:
-                                std::cerr << "[" << __func__ << "]: " << "Unknown VAR word_id..." << word_id << std::endl;
-                                break;
-                        } //...switch word_id
-                    } //...if variable
-                    else // constraint line
-                    {
-                        switch( word_id ) // bound_type, lower_boud, upper_bound, linearity
-                        {
-                            case 0: // Constraint bound type
-                                tmp._bkx = static_cast<BOUND>( atoi(word.c_str()) );
-                                break;
-                            case 1: // Constraint lower bound
-                                tmp._blx = atof( word.c_str() );
-                                break;
-                            case 2: // Constraint upper bound
-                                tmp._bux = atof( word.c_str() );
-                                break;
-                            case 3: // Constraint linearity
-                                tmp._lin_x = static_cast<LINEARITY>( atoi(word.c_str()) );
-                                break;
-                            default:
-                                std::cerr << "[" << __func__ << "]: " << "Unknown CNSTR word_id..." << word_id << ", word: " << word << std::endl;
-                                break;
-                        } //...switch word_id
-                    } //...if constraint
-
-                    // increment line parse status
-                    ++word_id;
-                } //... non-header line
-            } //...while line has more words
-
-            // add variable/constraint
-            if ( lid >= 0 )
-            {
-                if ( lid < vars ) this->addVariable  ( tmp ); // variable
-                else              this->addConstraint( tmp ); // constraint
-            } // if non-header-line
-
-            // increase read line count (did not count comments)
-            ++lid;
-        } //... while file has more lines
-
-        // close file
-        aux_file.close();
-
-        return err;
-    } //...OptProblem::_parseAuxFile()
-
-    template <typename _Scalar> int
-    OptProblem<_Scalar>::read( std::string const& proj_file_path )
-    {
-        int err = EXIT_SUCCESS;
-
-        // Parse project path
-        std::string proj_path = ".";
-        int slash_pos = proj_file_path.rfind("/");
-        if ( slash_pos != std::string::npos )
-        {
-            std::cout << "slahspos: " << slash_pos << ", size: " << proj_file_path.size() << std::endl;
-            proj_path = proj_file_path.substr( 0, slash_pos );
-        }
-
-        // Open project file
-        std::vector<std::string> paths;
-        {
-            // open
-            std::ifstream proj_file( proj_file_path );
-            if ( !proj_file.is_open() )
-            {
-                std::cerr << "[" << __func__ << "]: " << "could not open " << proj_file_path << std::endl;
-                return EXIT_FAILURE;
-            }
-
-            // parse project file
-            std::string line;
-            while ( getline(proj_file, line) )
-            {
-                if ( line[0] == '#') continue;
-
-                paths.push_back( line );
-            }
-            proj_file.close();
-        } //... parse project file
-
-        // Parse project files
-        for ( size_t i = 0; i != paths.size(); ++i )
-        {
-            std::string fname = paths[i];
-            std::cout << "reading " << proj_path + "/" + paths[i] << std::endl; fflush(stdout);
-            // aux file or sparse matrix
-            if ( fname.find("aux") != std::string::npos )
-            {
-                this->_parseAuxFile( proj_path + "/" + paths[i] );
-            }
-            else // sparse matrix
-            {
-                // read
-                SparseMatrix mx = io::readSparseMatrix<_Scalar>( proj_path + "/" + paths[i], 0 );
-
-                // save
-                if ( fname.find("qo") != std::string::npos ) // lin objective
-                {
-                    std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << std::endl;
-                    err += this->addLinObjectives( mx );
-                    std::cout << "problem varcount : " << this->getVarCount() << std::endl;
-                } //...if qo
-                else if ( fname.find("Qo") != std::string::npos ) // quadratic objective
-                {
-                    std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << std::endl;
-                    err += this->addQObjectives( mx );
-                } //...if Qo
-                else if ( fname.find("A") != std::string::npos ) // lin constraint
-                {
-                    std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << std::endl;
-                    err += this->addLinConstraints( mx );
-                } //...if A
-                else if ( fname.find("Q") != std::string::npos ) // Qo will be parsed before, so that's fine
-                {
-                    std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << std::endl;
-                    err += this->addQConstraints( mx );
-                } //...ifelse sparse matrix type
-            } //...sparse matrix
-        } //...for project file
-
-        // print summary
-        this->printProblem();
-
-        return err;
-    } // ...OptProblem::read
-
-} // ... namespace qcqpcpp
 
 #endif // QCQPCPP_INC_SGOPTPROBLEM_H

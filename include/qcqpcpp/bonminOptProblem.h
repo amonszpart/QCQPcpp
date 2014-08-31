@@ -5,6 +5,7 @@
 #include "Eigen/Dense"
 #include "Eigen/Sparse"
 #include "qcqpcpp/optProblem.h"
+#include "coin/BonBonminSetup.hpp" // Bonmin::Algorithm enum
 
 namespace qcqpcpp
 {
@@ -44,7 +45,8 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         //! \param objective_sense      Minimization or Maximization.
         virtual int optimize( std::vector<_Scalar> *x_out /* = NULL */, typename ParentType::OBJ_SENSE objecitve_sense /* = OBJ_SENSE::MINIMIZE */ );
 
-        virtual _Scalar getINF() const override { return std::numeric_limits<_Scalar>::max(); } //DBL_MAX
+        virtual _Scalar getINF   () const override { return std::numeric_limits<_Scalar>::max(); } // DBL_MAX
+        virtual int     getOkCode() const override { return 0; }
         //@}
 
         static inline Bonmin::TMINLP::VariableType getVarTypeCustom( typename ParentType::VAR_TYPE var_type );
@@ -57,6 +59,7 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         inline void printSolutionAtEndOfAlgorithm          ()              { _printSol = true; }
         inline bool isDebug                                ()        const { return _debug; }
         inline bool isPrintSol                             ()        const { return _printSol; }
+        inline void setAlgorithm                           ( Bonmin::Algorithm alg ) { _algCode = alg; }
 
     protected:
         SparseMatrix                 _jacobian; //!< \brief Cached Jacobian of linear constraints.
@@ -65,6 +68,8 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         VectorX                      _qo;       //!< \brief Cached full linear objective vector.
         SparseMatrix                 _Qo;       //!< \brief Cached full quadratic objective matrix.
         SparseMatrix                 _A;        //!< \brief Cached full linear constraint matrix.
+
+        Bonmin::Algorithm           _algCode;   //!< \brief Stores the chosen algorihtm code. 0 = B_Bb default.
 
     private:
         bool                          _printSol;  //!< \brief Flag, to print x in the end.
@@ -79,7 +84,7 @@ class BonminTMINLP : public Bonmin::TMINLP
         typedef typename qcqpcpp::OptProblem<_Scalar>                   ParentType;
         typedef typename ParentType::VectorX                            VectorX;
         typedef typename ParentType::SparseMatrix                       SparseMatrix;
-        typedef          Eigen::Map<const Eigen::Matrix<_Scalar,-1,1> > MatrixMapT;
+        typedef          Eigen::Map<const Eigen::Matrix<Ipopt::Number,-1,1> > MatrixMapT;
 
         BonminTMINLP( BonminOpt<_Scalar> &delegate ) : _delegate( delegate ) {}
 
@@ -243,7 +248,7 @@ BonminOpt<_Scalar>::update( bool verbose /* = false */ )
 }
 
 template <typename _Scalar> int
-BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename ParentType::OBJ_SENSE objecitve_sense /* = MINIMIZE */ )
+BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename ParentType::OBJ_SENSE objective_sense /* = MINIMIZE */ )
 {
     if ( !this->_updated )
     {
@@ -254,9 +259,45 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     // Now initialize from tminlp
     Bonmin::BonminSetup bonmin2;
     bonmin2.initializeOptionsAndJournalist();
-    bonmin2.readOptionsString("bonmin.algorithm B-OA\n");
+
+    switch ( this->_algCode )
+    {
+        case Bonmin::Algorithm::B_BB:
+            bonmin2.readOptionsString("bonmin.algorithm B-BB\n"); break;
+        case Bonmin::Algorithm::B_OA:
+            bonmin2.readOptionsString("bonmin.algorithm B-OA\n"); break;
+        case Bonmin::Algorithm::B_QG:
+            bonmin2.readOptionsString("bonmin.algorithm B-QG\n"); break;
+        case Bonmin::Algorithm::B_Hyb:
+            bonmin2.readOptionsString("bonmin.algorithm B-Hyb\n"); break;
+        case Bonmin::Algorithm::B_Ecp:
+            bonmin2.readOptionsString("bonmin.algorithm B-Ecp\n"); break;
+        case Bonmin::Algorithm::B_IFP:
+            bonmin2.readOptionsString("bonmin.algorithm B-IFP\n"); break;
+        default:
+            std::cerr << "[" << __func__ << "]: " << "UNCRECOGNIZED algorithm" << std::endl;
+            return EXIT_FAILURE;
+            break;
+    }
+
+    // need this relay, otherwise, we'll end up with a double free corruption thing
+    Ipopt::SmartPtr<BonminTMINLP<_Scalar> > problem = new BonminTMINLP<_Scalar>( *this );
+    //bonmin2.options()->SetStringValue("derivative_test","second-order");
+    //bonmin2.options()->SetStringValue("derivative_test_print_all","yes");
+
+    std::cout << "[" << __func__ << "]: " << "bonmin.initialize( problem ) called..." << std::endl; fflush(stdout);
+    bonmin2.initialize( GetRawPtr(problem) );
+    std::cout << "[" << __func__ << "]: " << "bonmin.initialize( problem ) finished..." << std::endl; fflush(stdout);
     //bonmin2.setDoubleParameter( Bonmin::BabSetupBase::AllowableFractionGap, 1e-20 );
-    bonmin2.setDoubleParameter( Bonmin::BabSetupBase::MaxTime, 360 );
+
+    if ( this->getTimeLimit() > _Scalar(0) )
+        bonmin2.setDoubleParameter( Bonmin::BabSetupBase::MaxTime, this->getTimeLimit() );
+    if ( this->getTolRelGap() > _Scalar(0) )
+        bonmin2.setDoubleParameter( Bonmin::BabSetupBase::AllowableFractionGap, this->getTolRelGap());
+    std::cout << "[" << __func__ << "]: " << "Bonmin::BabLogLevel= " << bonmin2.getIntParameter( Bonmin::BabSetupBase::BabLogLevel) << std::endl;
+    bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogLevel, 5 );
+    //bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, 1000 );
+    bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogInterval, 10 );
 
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxNode = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxNodes ) << std::endl;
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxIterations = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxIterations ) << std::endl;
@@ -269,12 +310,16 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     std::cout << "[" << __func__ << "]: " << "Bonmin::IntTol = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::IntTol ) << std::endl;
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxTime = " << bonmin2.getDoubleParameter( Bonmin::BabSetupBase::MaxTime ) << std::endl;
 
-    // need this relay, otherwise, we'll end up with a double free corruption thing
-    Ipopt::SmartPtr<BonminTMINLP<_Scalar> > problem = new BonminTMINLP<_Scalar>(*this);
-    //bonmin2.options()->SetStringValue("derivative_test","second-order");
-    //bonmin2.options()->SetStringValue("derivative_test_print_all","yes");
+    /*  bb_log_interval: [ Interval at which node level output is printed (number of nodes) {100} ]
+                       bb_log_level: [ Level of branch and bound log detail (0-5) {1} ]
+                       lp_log_level: [ Level of LP solver log detail (0-4) {0} ]
+                     milp_log_level: [ Level of MILP solver log detail (0-4) {0} ]
+                      nlp_log_level: [ Level of NLP solver log detail (0-2) {0} ]
+                    nlp_log_at_root: [ Level of NLP solver log detail at root node (0-12) {0} ]
+                   oa_log_frequency: [ Frequency (in seconds) of OA log messages  {100} ]
+                       oa_log_level: [ Level of OA decomposition log detail (0-2) {1} ]*/
 
-    bonmin2.initialize( GetRawPtr(problem) );
+
 
     //derivative_test_print_all
     //bonmin.readOptionsString("bonmin.algorithm B-BB\n");
@@ -285,7 +330,10 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     try
     {
         Bonmin::Bab bb;
+        //bb.setUsingCouenne( true ); // testing
+
         bb( bonmin2 ); // process parameter file using Ipopt and do branch and bound using Cbc
+        std::cout << "[" << __func__ << "]: " << "bonmin finished" << std::endl; fflush(stdout);
     }
     catch ( Bonmin::TNLPSolver::UnsolvedError *E )
     {
@@ -319,7 +367,7 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
             x_out->push_back( this->_x[i] );
     }
 
-    return EXIT_SUCCESS;
+    return !(this->_x.size() == this->getVarCount());
 }
 
 template <typename _Scalar> Bonmin::TMINLP::VariableType
@@ -343,6 +391,8 @@ BonminOpt<_Scalar>::getVarTypeCustom( typename ParentType::VAR_TYPE var_type )
     } //... switch
 
 } //...BonminOpt::getVarTypeCustom()
+
+//_____________________________________________________________________________________________________________________
 
 template <typename _Scalar> bool
 BonminTMINLP<_Scalar>::get_variables_types( Ipopt::Index n, VariableType* var_types )
@@ -427,11 +477,11 @@ BonminTMINLP<_Scalar>::get_nlp_info( Ipopt::Index                & n
                   << ")" << std::endl; fflush( stdout );
     }
 
-    n           = _delegate.getVarCount();          // number of variable
-    m           = _delegate.getConstraintCount();   // number of constraints
-    nnz_jac_g   = _delegate.getJacobian().nonZeros();        // number of non zeroes in Jacobian
-    nnz_h_lag   = _delegate.getHessian().nonZeros();          // number of non zeroes in Hessian of Lagrangean
-    index_style = Ipopt::TNLP::C_STYLE;                // zero-indexed
+    n           = _delegate.getVarCount();            // number of variable
+    m           = _delegate.getConstraintCount();     // number of constraints
+    nnz_jac_g   = _delegate.getJacobian().nonZeros(); // number of non zeroes in Jacobian
+    nnz_h_lag   = _delegate.getHessian().nonZeros();  // number of non zeroes in Hessian of Lagrangean
+    index_style = Ipopt::TNLP::C_STYLE;               // zero-indexed
 
     if ( _delegate.isDebug() )
     {
@@ -547,7 +597,7 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
         else
         {
             if ( !real_distribution )
-                real_distribution = new std::uniform_real_distribution<>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
+                real_distribution = new std::uniform_real_distribution<_Scalar>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
 
             x[ j ] = (*real_distribution)( gen );
         }
@@ -779,16 +829,16 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 
 template <typename _Scalar> bool
 BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
-                          , Ipopt::Number const * x
-                          , bool           new_x
-                          , Ipopt::Number         obj_factor
-                          , Ipopt::Index          m
-                          , Ipopt::Number const * lambda
-                          , bool           new_lambda
-                          , Ipopt::Index          nele_hess
-                          , Ipopt::Index        * iRow
-                          , Ipopt::Index        * jCol
-                          , Ipopt::Number       * values )
+                             , Ipopt::Number const * x
+                             , bool           new_x
+                             , Ipopt::Number         obj_factor
+                             , Ipopt::Index          m
+                             , Ipopt::Number const * lambda
+                             , bool           new_lambda
+                             , Ipopt::Index          nele_hess
+                             , Ipopt::Index        * iRow
+                             , Ipopt::Index        * jCol
+                             , Ipopt::Number       * values )
 {
     bool ret_val = false;
 
@@ -860,7 +910,18 @@ BonminTMINLP<_Scalar>::finalize_solution( TMINLP::SolverReturn   status
                                         , Ipopt::Number const         * x
                                         , Ipopt::Number                 obj_value )
 {
-    std::cout << "Problem status: "  << status    << std::endl;
+    std::cout << "Problem status: "  << status;
+    switch (status)
+    {
+        case SUCCESS: std::cout << "SUCCESS"; break;
+        case INFEASIBLE: std::cout << "INFEASIBLE"; break;
+        case CONTINUOUS_UNBOUNDED: std::cout << "CONTINUOUS_UNBOUNDED"; break;
+        case LIMIT_EXCEEDED: std::cout << "LIMIT_EXCEEDED"; break;
+        case MINLP_ERROR: std::cout << "MINLP_ERROR"; break;
+        default: std::cout << "UNKNOWN"; break;
+    }
+    std::cout << endl;
+
     std::cout << "Objective value: " << obj_value << std::endl;
     if ( _delegate.isPrintSol() && (x != NULL) )
     {
@@ -875,10 +936,35 @@ BonminTMINLP<_Scalar>::finalize_solution( TMINLP::SolverReturn   status
 
     // save solution
     VectorX sol( n );
-    for ( int i = 0 ; i < n; ++i )
+    sol.setZero();
+    if ( x )
     {
-        sol(i) = x[i];
+        std::cout << "saving " << n << " variables" << std::endl;
+        _Scalar sum = 0;
+        for ( int i = 0 ; i < n; ++i )
+        {
+            sol(i) = x[i];
+            sum += x[i];
+        }
+        std::cout << "sum: " << sum << std::endl;
     }
+    else
+    {
+        std::cerr << "[" << __func__ << "]: " << "no solution returned, status is ";
+        switch ( status )
+        {
+            case    SUCCESS: std::cerr << "SUCCESS"; break;
+            case INFEASIBLE: std::cerr << "INFEASIBLE"; break;
+            case CONTINUOUS_UNBOUNDED: std::cerr << "CONTINUOUS_UNBOUNDED"; break;
+            case LIMIT_EXCEEDED: std::cerr << "LIMIT_EXCEEDED"; break;
+            case MINLP_ERROR: std::cerr << "MINLP_ERROR"; break;
+            default: std::cerr << "unrecognized code"; break;
+        }
+        std::cerr << std::endl;
+        fflush( stderr );
+
+    } //...if x
+
     _delegate.setSolution( sol );
 } // ... BonminOpt::finalize_solution()
 

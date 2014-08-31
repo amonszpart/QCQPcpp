@@ -174,7 +174,7 @@ update( bool verbose )
         typename ParentType::SparseMatrix A( this->getLinConstraintsMatrix() );
 //        ( this->getConstraintCount(), this->getVarCount() );
 //        A.setFromTriplets( this->getLinConstraints().begin(), this->getLinConstraints().end() );
-        std::vector<Scalar>         aval;                // Linear constraints coeff matrix (sparse)
+        std::vector<double>         aval;                // Linear constraints coeff matrix (sparse)
         std::vector<int>            asub;                // Linear constraints coeff matrix indices
         std::vector<int>            aptrb, aptre;
         for ( int row = 0; (row < A.outerSize()) && (MSK_RES_OK == _r); ++row )
@@ -329,7 +329,29 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
     {
         // set termination sensitivity
         MSKrescodee trmcode;
-        MSK_putdouparam( _task, MSK_DPAR_MIO_TOL_REL_GAP, 1e-10f );
+        if ( (_r == MSK_RES_OK) && (this->getTolRelGap() > Scalar(0)) )
+        {
+            _r = MSK_putdouparam( _task, MSK_DPAR_MIO_TOL_REL_GAP, this->getTolRelGap() /*1e-10f*/ );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_DPAR_MIO_DISABLE_TERM_TIME to " << this->getTimeLimit() << " did NOT work!" << std::endl;
+            }
+        }
+
+
+        if ( (_r == MSK_RES_OK) && (this->getTimeLimit() > Scalar(0)) )
+        {
+            _r = MSK_putdouparam(_task, MSK_DPAR_MIO_DISABLE_TERM_TIME, this->getTimeLimit() );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_DPAR_MIO_DISABLE_TERM_TIME to " << this->getTimeLimit() << " did NOT work!" << std::endl;
+            }
+            _r = MSK_putdouparam(_task, MSK_DPAR_MIO_MAX_TIME, this->getTimeLimit()+Scalar(5) );
+            if ( _r != MSK_RES_OK )
+            {
+                std::cerr << "[" << __func__ << "]: " << "setting MSK_DPAR_MIO_MAX_TIME to " << this->getTimeLimit()+Scalar(5) << " did NOT work!" << std::endl;
+            }
+        }
 
         if (_r == MSK_RES_OK)
         {
@@ -342,7 +364,7 @@ MosekOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out, OBJ_SENSE objective_se
 
         if ( _r == MSK_RES_OK )
         {
-            _r = MSK_putintparam( _task, MSK_IPAR_MIO_PRESOLVE_USE, MSK_OFF );
+            _r = MSK_putintparam( _task, MSK_IPAR_MIO_PRESOLVE_USE, MSK_ON );
             if ( _r != MSK_RES_OK )
             {
                 std::cerr << "[" << __func__ << "]: " << "setting MSK_IPAR_MIO_PRESOLVE_USE did not work!" << std::endl;

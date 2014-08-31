@@ -2,6 +2,8 @@
 #define QCQPCPP_SGOPTPROBLEM_HPP
 
 #include <exception>
+#include "qcqpcpp/io/io.h" // readSparseMatrix, writeSparseMatrix
+#include "sys/stat.h"      // mkdir
 
 namespace qcqpcpp
 {
@@ -157,14 +159,21 @@ OptProblem<_Scalar>::estimateHessianOfLagrangian() const
     }
 
     SparseMatrix hessian( getVarCount(), getVarCount() );
-    hessian.reserve( _linConstrList.size() );
-    for ( int i = 0; i != _linConstrList.size(); ++i )
+    hessian.reserve( _quadObjList.size() );
+    for ( int i = 0; i != _quadObjList.size(); ++i )
     {
         // (c * x^2)'' == 2c. Second derivative has a 2 multiplier if it's a squared variable.
-        if ( _linConstrList[i].row() != _linConstrList[i].col() )
-            hessian.insert( _linConstrList[i].row(), _linConstrList[i].col() ) = _linConstrList[i].value();
+        if ( _quadObjList[i].row() != _quadObjList[i].col() )
+        {
+//                std::cout << "hessian.outerSize: " << hessian.outerSize() << ", innerSize: " << hessian.innerSize()
+//                          << ", inserting to " << _quadObjList[i].row() << ", "
+//                          << _quadObjList[i].col() << " = " << _quadObjList[i].value()
+//                          << std::endl;
+
+            hessian.insert( _quadObjList[i].row(), _quadObjList[i].col() ) = _quadObjList[i].value();
+        }
         else
-            hessian.insert( _linConstrList[i].row(), _linConstrList[i].col() ) = _Scalar(2) * _linConstrList[i].value();
+            hessian.insert( _quadObjList[i].row(), _quadObjList[i].col() ) = _Scalar(2) * _quadObjList[i].value();
     } // for linConstrList
 
     return hessian;
@@ -223,35 +232,35 @@ OptProblem<_Scalar>::addConstraint( BOUND bound_type, Scalar lower_bound, Scalar
             //return EXIT_FAILURE;
         }
     }
-    else if ( bound_type == BOUND::GREATER_EQ )
-    {
-        if ( upper_bound != getINF() )
-        {
-            std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is LOwer, upper_bound should probably be infinity, and not " << upper_bound << std::endl;
-            //return EXIT_FAILURE;
-        }
-    }
-    else if ( bound_type == BOUND::LESS_EQ )
-    {
-        if ( lower_bound != -getINF() )
-        {
-            std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is UPper, lower_bound should probably be -infinity, and not " << lower_bound << std::endl;
-            //return EXIT_FAILURE;
-        }
-    }
-    else if ( bound_type == BOUND::RANGE )
-    {
-        if ( (lower_bound == -getINF()) || (upper_bound == getINF()) )
-        {
-            std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is RAnge, bounds should not be infinity: " << lower_bound << ", " << upper_bound << std::endl;
-            //return EXIT_FAILURE;
-        }
-    }
-    else
-    {
-        std::cerr << "[" << __func__ << "]: " << "bound_type is not defined used for constraints..." << std::endl;
-        return EXIT_FAILURE;
-    }
+//    else if ( bound_type == BOUND::GREATER_EQ )
+//    {
+//        if ( upper_bound < getINF() )
+//        {
+//            //std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is LOwer, upper_bound should probably be infinity, and not " << upper_bound << std::endl;
+//            //return EXIT_FAILURE;
+//        }
+//    }
+//    else if ( bound_type == BOUND::LESS_EQ )
+//    {
+//        if ( lower_bound > -getINF() )
+//        {
+//            //std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is UPper, lower_bound should probably be -infinity, and not " << lower_bound << std::endl;
+//            //return EXIT_FAILURE;
+//        }
+//    }
+//    else if ( bound_type == BOUND::RANGE )
+//    {
+//        //if ( (lower_bound <= -getINF()) || (upper_bound >= getINF()) )
+//        //{
+//            //std::cerr << "[" << __func__ << "]: " << "[Warning] If bound_type is RAnge, bounds should not be infinity: " << lower_bound << ", " << upper_bound << std::endl;
+//            //return EXIT_FAILURE;
+//        //}
+//    }
+//    else
+//    {
+//        std::cerr << "[" << __func__ << "]: " << "bound_type is not defined used for constraints..." << std::endl;
+//        return EXIT_FAILURE;
+//    }
 
     // contraint matrix row
     const int row = _bkc.size();
@@ -394,45 +403,355 @@ OptProblem<_Scalar>::estimateJacobianOfConstraints() const
 //______________________________________________________________________________
 
 template <typename _SparseMatrixT>
-int _printSparseMatrix( _SparseMatrixT const& mx, std::string const& title = "smx" )
+int _printSparseMatrix( _SparseMatrixT const& mx, std::string const& title = "smx", const int entry_limit = 10 )
 {
+    int cnt = 0;
     std::cout << title << ": ";
-    for ( int row = 0; row != mx.outerSize(); ++row )
+    if ( mx.nonZeros() )
     {
-        for ( typename _SparseMatrixT::InnerIterator it(mx,row); it; ++it )
+
+        for ( int row = 0; (row != mx.outerSize()) && (cnt < entry_limit); ++row )
         {
-            std::cout << "(" << it.row() << ", " << it.col() << "," << it.value() << "), ";
+            for ( typename _SparseMatrixT::InnerIterator it(mx,row); it && (cnt < entry_limit); ++it, ++cnt )
+            {
+                std::cout << "(" << it.row() << ", " << it.col() << "," << it.value() << "), ";
+            }
         }
+        if ( cnt < mx.nonZeros() )
+            std::cout << "...and " << mx.nonZeros() - cnt << " other entries...";
     }
+    else
+        std::cout << "empty";
+
     std::cout << std::endl;
     return EXIT_SUCCESS;
 }
 
 template <typename _Scalar> int
-OptProblem<_Scalar>::printProblem() const
+OptProblem<_Scalar>::printProblem( int entry_limit /* = 10 */ ) const
 {
+    // Const objective
     std::cout << "[" << __func__ << "]: " << "const objective: " << this->getObjectiveBias() << std::endl;
+
     // Linear objectives
-    std::cout<< "[" << __func__ << "]: " << "_linObjs:";
-    for(size_t vi=0;vi!=_linObjs.size();++vi)std::cout<<_linObjs[vi]<<" ";std::cout << "\n";
+    {
+        std::cout<< "[" << __func__ << "]: " << "_linObjs:";
+        for ( size_t vi=0; (vi!=_linObjs.size()) && (vi < entry_limit); ++vi )
+            std::cout << _linObjs[vi] <<" ";
+        if ( _linObjs.size() > entry_limit )
+            std::cout << "...and " << _linObjs.size() - entry_limit << " more entries...";
+        std::cout << "\n";
+    }
 
     // Quad obj
-    SparseMatrix Qo = this->getQuadraticObjectivesMatrix();
-    _printSparseMatrix( Qo, "Qo" );
+    {
+        SparseMatrix Qo = this->getQuadraticObjectivesMatrix();
+        std::cout << "[" << __func__ << "]: ";
+        _printSparseMatrix( Qo, "Qo", entry_limit );
+    }
 
     // Linear constraints
-    SparseMatrix A = this->getLinConstraintsMatrix();
-    _printSparseMatrix( A, "A" );
+    {
+        SparseMatrix A = this->getLinConstraintsMatrix();
+        std::cout << "[" << __func__ << "]: ";
+        _printSparseMatrix( A, "A", entry_limit );
+    }
 
+    // Quadratic constraints
     for ( int i = 0; i != this->getConstraintCount(); ++i )
     {
         SparseMatrix Qi = this->getQuadraticConstraintsMatrix( i );
-        char name[255]; sprintf(name, "Q%d", i);
-        _printSparseMatrix( Qi, name );
+        if ( Qi.nonZeros() )
+        {
+            char name[255]; sprintf(name, "Q%d", i);
+            _printSparseMatrix( Qi, name, entry_limit );
+        }
     }
 
     return EXIT_SUCCESS;
 } // ...OptProblem::printProblem()
+
+//_____________________________________________________________________________
+
+template <typename _Scalar> int
+OptProblem<_Scalar>::write( std::string const& path ) const
+{
+    std::cout << "[" << __func__ << "]: " << "creating " << path << std::endl;
+    mkdir( path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
+    std::vector<std::string> paths;
+
+    // vars
+    paths.push_back( getAuxName() );
+    {
+        std::ofstream aux_file( path + "/" + paths.back() );
+        if ( !aux_file.is_open() )
+        {
+            std::cerr << "[" << __func__ << "]: " << "could not open " << path + "/" + paths.back() << std::endl;
+            return EXIT_FAILURE;
+        }
+
+        aux_file << "# vars, constraints, objective bias (c)" << std::endl;
+        aux_file << this->getVarCount() << "," << this->getConstraintCount() << "," << this->getObjectiveBias() << std::endl;
+        aux_file << "# bound_type, var_type, lower_boud, upper_bound, linearity" << std::endl;
+        for ( int j = 0; j != this->getVarCount(); ++j )
+        {
+            aux_file << this->getVarBoundType(j) << ","
+                     << this->getVarType( j ) << ","
+                     << this->getVarLowerBound( j ) << ","
+                     << this->getVarUpperBound( j ) << ","
+                     << this->getVarLinearity( j )
+                     << std::endl;
+        } // for each variable
+        aux_file << "# bound_type, lower_boud, upper_bound, linearity" << std::endl;
+        for ( int i = 0; i != this->getConstraintCount(); ++i )
+        {
+            aux_file << this->getConstraintBoundType( i ) << ","
+                     << this->getConstraintLowerBound( i ) << ","
+                     << this->getConstraintUpperBound( i ) << ","
+                     << this->getConstraintLinearity( i )
+                     << std::endl;
+        } // for each variable
+
+        std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+    } // vars file
+
+    // qo
+    paths.push_back(getqoName());
+    io::writeSparseMatrix( this->getLinObjectivesMatrix(), path + "/" + paths.back(), 0 );
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+
+    // Qo
+    paths.push_back(getQoName());
+    io::writeSparseMatrix( this->getQuadraticObjectivesMatrix(), path + "/" + paths.back(), 0 );
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+
+    // A
+    paths.push_back(getAName());
+    io::writeSparseMatrix( this->getLinConstraintsMatrix(), path + "/" + paths.back(), 0 );
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+
+    // Qi
+    for ( int i = 0; i != this->getQuadraticConstraints().size(); ++i )
+    {
+        paths.push_back( getQiName(i) );
+        io::writeSparseMatrix( this->getQuadraticConstraintsMatrix(i), path + "/" + paths.back(), 0 );
+        std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+    }
+
+    std::string proj_path = path + "/problem.proj";
+    std::ofstream proj_file( proj_path );
+    if ( !proj_file.is_open() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "could not open " << proj_path << std::endl;
+    }
+    for ( size_t i = 0; i != paths.size(); ++i )
+        proj_file << paths[i] << std::endl;
+
+    proj_file.close();
+    std::cout << "[" << __func__ << "]: " << "project written to " << proj_path << std::endl;
+
+    return EXIT_FAILURE;
+} // ... Optproblem::write
+
+template <typename _Scalar> int
+OptProblem<_Scalar>::_parseAuxFile( std::string const& aux_file_path )
+{
+    int err = EXIT_SUCCESS;
+
+    // open file
+    std::ifstream aux_file( aux_file_path );
+    if ( !aux_file.is_open() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "Coult not open aux_file " << aux_file_path << std::endl;
+        return EXIT_FAILURE;
+    }
+
+    // parse lines
+    int         vars        = -1, // "uninited"
+                constraints = -1; // "uninited"
+    int         lid         = -1; // -1 == there's an extra line to read first, the header
+    std::string line;             // tmp storage of read line
+    while ( getline(aux_file, line) )
+    {
+        // skip comment
+        if ( line[0] == '#') continue;
+
+        // parse line
+        std::istringstream iss( line );
+        std::string        word;
+        int                word_id = 0; // line parse state
+        Variable           tmp;         // output storage variable
+        while ( std::getline(iss, word, ',') )
+        {
+            if ( vars < 0 ) // header line
+            {
+                vars = atoi( word.c_str() );        // parse number of variables
+                std::getline(iss, word, ',');
+                constraints = atoi( word.c_str() ); // parse number of constraints
+                std::getline(iss, word, ',');
+                this->_cfix = atof( word.c_str() ); // parse constant objective function bias
+
+                std::cout << "bias is now " << this->getObjectiveBias()
+                          << " reading " << vars << " vars and " << constraints << " constraints"
+                          << std::endl;
+
+                std::getline( iss, word );          // clear rest of line
+            }
+            else // variable or constraint line
+            {
+                if ( lid < vars ) // variable line
+                {
+                    switch ( word_id ) // bound_type, var_type, lower_boud, upper_bound, linearity
+                    {
+                        case 0: // Variable bound type
+                            tmp._bkx = static_cast<BOUND>( atoi(word.c_str()) );
+                            break;
+                        case 1: // Variable type (cont/integer/binary)
+                            tmp._type_x = static_cast<VAR_TYPE>( atoi(word.c_str()) );
+                            break;
+                        case 2: // Variable lower bound
+                            tmp._blx = atof( word.c_str() );
+                            break;
+                        case 3: // Variable upper bound
+                            tmp._bux = atof( word.c_str() );
+                            break;
+                        case 4: // Variable linearity
+                            tmp._lin_x = static_cast<LINEARITY>( atoi(word.c_str()) );
+                            break;
+                        default:
+                            std::cerr << "[" << __func__ << "]: " << "Unknown VAR word_id..." << word_id << std::endl;
+                            break;
+                    } //...switch word_id
+                } //...if variable
+                else // constraint line
+                {
+                    switch( word_id ) // bound_type, lower_boud, upper_bound, linearity
+                    {
+                        case 0: // Constraint bound type
+                            tmp._bkx = static_cast<BOUND>( atoi(word.c_str()) );
+                            break;
+                        case 1: // Constraint lower bound
+                            tmp._blx = atof( word.c_str() );
+                            break;
+                        case 2: // Constraint upper bound
+                            tmp._bux = atof( word.c_str() );
+                            break;
+                        case 3: // Constraint linearity
+                            tmp._lin_x = static_cast<LINEARITY>( atoi(word.c_str()) );
+                            break;
+                        default:
+                            std::cerr << "[" << __func__ << "]: " << "Unknown CNSTR word_id..." << word_id << ", word: " << word << std::endl;
+                            break;
+                    } //...switch word_id
+                } //...if constraint
+
+                // increment line parse status
+                ++word_id;
+            } //... non-header line
+        } //...while line has more words
+
+        // add variable/constraint
+        if ( lid >= 0 )
+        {
+            if ( lid < vars ) this->addVariable  ( tmp ); // variable
+            else              this->addConstraint( tmp ); // constraint
+        } // if non-header-line
+
+        // increase read line count (did not count comments)
+        ++lid;
+    } //... while file has more lines
+
+    // close file
+    aux_file.close();
+
+    return err;
+} //...OptProblem::_parseAuxFile()
+
+template <typename _Scalar> int
+OptProblem<_Scalar>::read( std::string proj_file_path )
+{
+    int err = EXIT_SUCCESS;
+
+    // Parse project path
+    std::string proj_path = ".";
+    if ( proj_file_path.rfind(".proj") != proj_file_path.size() - 5 )
+    {
+        proj_file_path = proj_file_path + "/problem.proj";
+    }
+
+    int slash_pos = proj_file_path.rfind("/");
+    if ( slash_pos != std::string::npos )
+    {
+        proj_path = proj_file_path.substr( 0, slash_pos );
+    }
+
+    // Open project file
+    std::vector<std::string> paths;
+    {
+        // open
+        std::ifstream proj_file( proj_file_path );
+        if ( !proj_file.is_open() )
+        {
+            std::cerr << "[" << __func__ << "]: " << "could not open " << proj_file_path << std::endl;
+            return EXIT_FAILURE;
+        }
+
+        // parse project file
+        std::string line;
+        while ( getline(proj_file, line) )
+        {
+            if ( line[0] == '#') continue;
+
+            paths.push_back( line );
+        }
+        proj_file.close();
+    } //... parse project file
+
+    // Parse project files
+    for ( size_t i = 0; i != paths.size(); ++i )
+    {
+        std::string fname = paths[i];
+        std::cout << "reading " << proj_path + "/" + paths[i] << std::endl; fflush(stdout);
+        // aux file or sparse matrix
+        if ( fname.find("aux") != std::string::npos )
+        {
+            this->_parseAuxFile( proj_path + "/" + paths[i] );
+        }
+        else // sparse matrix
+        {
+            // read
+            SparseMatrix mx = io::readSparseMatrix<_Scalar>( proj_path + "/" + paths[i], 0 );
+
+            // save
+            if ( fname.find("qo") != std::string::npos ) // lin objective
+            {
+                std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << std::endl;
+                err += this->addLinObjectives( mx );
+                std::cout << "problem varcount : " << this->getVarCount() << std::endl;
+            } //...if qo
+            else if ( fname.find("Qo") != std::string::npos ) // quadratic objective
+            {
+                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << std::endl;
+                err += this->addQObjectives( mx );
+            } //...if Qo
+            else if ( fname.find("A") != std::string::npos ) // lin constraint
+            {
+                std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << std::endl;
+                err += this->addLinConstraints( mx );
+            } //...if A
+            else if ( fname.find("Q") != std::string::npos ) // Qo will be parsed before, so that's fine
+            {
+                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << std::endl;
+                err += this->addQConstraints( mx );
+            } //...ifelse sparse matrix type
+        } //...sparse matrix
+    } //...for project file
+
+    // print summary
+    this->printProblem();
+
+    return err;
+} // ...OptProblem::read
 
 } // ...namespace qcqpp
 

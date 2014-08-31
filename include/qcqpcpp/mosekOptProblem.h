@@ -30,16 +30,19 @@ class MosekOpt : public OptProblem<_Scalar>
         typedef typename ParentType::SparseMatrix        SparseMatrix; //!< \brief SparseMatrix type inherited from parent.
 
         //! \brief                  Prepare for optimization. Reads parent content and sets up specialized problem. Has to be called before #optimize().
-        virtual ReturnType update  ( bool verbose = false ) override;
+        virtual ReturnType  update  ( bool verbose = false ) override;
 
         //! \brief                  Run optimization using the current solver. #update() has to be called before.
         //! \param x_out            Returns the output, if requested. The output is also stored in OptProblem::_x
         //! \param objective_sense  Specifies, whether it's a minimization or a maximization problem.
-        virtual ReturnType optimize( std::vector<_Scalar> *x_out = NULL
+        virtual ReturnType  optimize( std::vector<_Scalar> *x_out = NULL
                                      , OBJ_SENSE objecitve_sense = OBJ_SENSE::MINIMIZE ) override;
 
         //! \brief Overrides infinity (default: std::numeric_limits<Scalar>::max()) to make implementation specific (i.e. here MSK_INFINITY == 1e30).
-        virtual Scalar getINF() const override { return MSK_INFINITY; }
+        virtual Scalar      getINF() const override { return MSK_INFINITY; }
+        //!< \brief Virtual getter for implementation specific error code for "no error".
+        //! \return The int conversion of the code (i.e. MSK_RES_OK == 0).
+        virtual int         getOkCode() const { return static_cast<int>(MSK_RES_OK); }
 
         //! \brief      Custom constructor taking optional Mosek environment as initialization.
         //! \pram env   Optional parameter to pass already created Mosek environment. It is advised by Mosek to only have one environment, so if you have to instances, make sure you share the env.
@@ -54,6 +57,8 @@ class MosekOpt : public OptProblem<_Scalar>
         static inline MSKvariabletypee getVarTypeCustom  ( typename ParentType::VAR_TYPE var_type ); //!< \brief Converts OptProblem::VAR_TYPE to mosek var type (MSK_VAR_TYPE_CONT, MSK_VAR_TYPE_INT).
 
                inline MSKenv_t         getMosekEnv       () const { return _env; } //!< \brief Mosek environment variable getter.
+
+
     protected:
         MSKrescodee               _r;                   //!< \brief Mosek error code for operation calls
         MSKenv_t                  _env;                 //!< \brief Mosek environment variable containing all problems. Make sure to only have one of these, and share between instances of MosekOpt.
