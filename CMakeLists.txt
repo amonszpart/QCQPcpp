@@ -2,7 +2,7 @@ project(QCQPcpp)
 CMAKE_MINIMUM_REQUIRED(VERSION 2.8)
 
 
-SET( THIRD_PARTY_DIR "~/workspace/3rdparty" )
+SET( THIRD_PARTY_DIR "$ENV{HOME}/workspace/3rdparty" )
 
 ######################################################
 
@@ -39,10 +39,11 @@ SET( BONMIN_INCLUDE_DIRS
     ${BONMIN_DIR}/include
 )
 
-SET (BONMIN_SOLVER_LIB ${BONMIN_DIR}lib/libcoinmumps.so)
 IF(EXISTS ${BONMIN_DIR}lib/libcoinhsl.so)
   SET (BONMIN_SOLVER_LIB ${BONMIN_DIR}lib/libcoinhsl.so)
   MESSAGE(STATUS "HSL Solver available, use instead of MUMPS")
+ELSE()
+    SET (BONMIN_SOLVER_LIB ${BONMIN_DIR}lib/libcoinmumps.so)
 ENDIF(EXISTS ${BONMIN_DIR}lib/libcoinhsl.so)
 
 
@@ -111,4 +112,4 @@ add_executable( ${TEST_PROJECT_NAME} ${H_LIST} ${HPP_LIST} ${TEST_SRC_LIST} )
 set_target_properties(${TEST_PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
 # LINK
-TARGET_LINK_LIBRARIES( ${PROJECT_NAME} ${CUSTOM_TARGET_LINK_LIBRARIES} )
+TARGET_LINK_LIBRARIES( ${TEST_PROJECT_NAME} ${CUSTOM_TARGET_LINK_LIBRARIES} )
