@@ -1,6 +1,7 @@
-#include "qcqpcpp/mosekOptProblem.h"
 #include "qcqpcpp/bonminOptProblem.h"
 
+#ifdef USE_MOSEK
+#include "qcqpcpp/mosekOptProblem.h"
 inline qcqpcpp::MosekOpt<double>::BOUND toSGBound( MSKboundkeye bound )
 {
     return qcqpcpp::MosekOpt<double>::BOUND( bound );
@@ -376,6 +377,8 @@ int testQC()
     return ( r + passed );
 }
 
+#endif // USE_MOSEK
+
 int testBonmin()
 {
     typedef double Scalar;
@@ -517,7 +520,9 @@ int main( int argc, char **argv )
     int err = EXIT_SUCCESS;
 
     //err += testBonmin();
+#ifdef USE_MOSEK
     err += testQC();
+#endif
 
     if ( err == EXIT_SUCCESS )
         std::cout << "[" << __func__ << "]: " << "all tests PASSED" << std::endl;
