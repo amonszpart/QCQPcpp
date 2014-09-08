@@ -512,6 +512,22 @@ int testDeriv()
 }
 #endif
 
+template <typename Scalar> int
+testReadWriteSparse()
+{
+    Eigen::SparseMatrix<double,Eigen::RowMajor> mx(4,4), mx2;
+    mx.insert( 0,0 ) = 2;
+    mx.insert( 1,1 ) = 4;
+    mx.insert( 2,2 ) = 3;
+    mx.insert( 3,3 ) = 1;
+    mx.insert( 0,3 ) = 9;
+    mx.insert( 2,0 ) = 5;
+    qcqpcpp::io::writeSparseMatrix( mx, "testWriteSparseMatrix.txt", 1 );
+    mx2 = qcqpcpp::io::readSparseMatrix<double>( "testWriteSparseMatrix.txt", -1 );
+    std::cout << mx2 << std::endl;
+    return 1;
+}
+
 int main( int argc, char **argv )
 {
 //    return testDeriv();
