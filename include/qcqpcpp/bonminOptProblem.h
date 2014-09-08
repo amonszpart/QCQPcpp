@@ -920,7 +920,7 @@ BonminTMINLP<_Scalar>::finalize_solution( TMINLP::SolverReturn   status
         case MINLP_ERROR: std::cout << "MINLP_ERROR"; break;
         default: std::cout << "UNKNOWN"; break;
     }
-    std::cout << endl;
+    std::cout << std::endl;
 
     std::cout << "Objective value: " << obj_value << std::endl;
     if ( _delegate.isPrintSol() && (x != NULL) )

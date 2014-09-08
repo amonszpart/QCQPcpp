@@ -4,6 +4,8 @@
 #include <fstream>
 #include <iomanip>
 
+#include "Eigen/Sparse"
+
 namespace qcqpcpp {
 namespace io {
 
