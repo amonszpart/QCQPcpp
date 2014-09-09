@@ -551,14 +551,14 @@ BonminTMINLP<_Scalar>::get_bounds_info( Ipopt::Index    n
 
 template <typename _Scalar> bool
 BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
-                                      , bool     init_x
-                                      , Ipopt::Number * x
-                                      , bool     init_z
-                                      , Ipopt::Number * z_L
-                                      , Ipopt::Number * z_U
-                                      , Ipopt::Index    m
-                                      , bool     init_lambda
-                                      , Ipopt::Number * lambda )
+                                         , bool            init_x
+                                         , Ipopt::Number * x
+                                         , bool            init_z
+                                         , Ipopt::Number * z_L
+                                         , Ipopt::Number * z_U
+                                         , Ipopt::Index    m
+                                         , bool            init_lambda
+                                         , Ipopt::Number * lambda )
 {
     if ( _delegate.isDebug() )
     {
@@ -581,36 +581,51 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
     //assert( !init_lambda );
 
     // random for now...
-    std::random_device rd;
-    std::mt19937 gen(rd());
-    std::uniform_int_distribution<>         *int_distribution  = NULL;
-    std::uniform_real_distribution<_Scalar> *real_distribution = NULL;
-    for ( int j = 0; j != _delegate.getVarCount(); ++j )
+    if ( _delegate.isUseStartingPoint() )
     {
-        if (    (_delegate.getVarType(j) == ParentType::VAR_TYPE::INTEGER)
-             || (_delegate.getVarType(j) == ParentType::VAR_TYPE::BINARY ) )
+        if ( _delegate.isDebug() )
         {
-            if ( !int_distribution )
-                int_distribution = new std::uniform_int_distribution<>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
-            x[ j ] = (*int_distribution)( gen );
+            std::cout << "using starting point " << _delegate.getStartingPoint().transpose() << std::endl;
         }
-        else
+
+        for ( int j = 0; j != _delegate.getVarCount(); ++j )
         {
-            if ( !real_distribution )
-                real_distribution = new std::uniform_real_distribution<_Scalar>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
-
-            x[ j ] = (*real_distribution)( gen );
+            x[j] = _delegate.getStartingPoint()(j);
         }
-    } //...for variables
+    }
+    else
+    {
+        std::random_device  rd;
+        std::mt19937        gen(rd());
+        std::uniform_int_distribution<>         *int_distribution  = NULL;
+        std::uniform_real_distribution<_Scalar> *real_distribution = NULL;
+        for ( int j = 0; j != _delegate.getVarCount(); ++j )
+        {
+            if (    (_delegate.getVarType(j) == ParentType::VAR_TYPE::INTEGER)
+                    || (_delegate.getVarType(j) == ParentType::VAR_TYPE::BINARY ) )
+            {
+                if ( !int_distribution )
+                    int_distribution = new std::uniform_int_distribution<>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
+                x[ j ] = (*int_distribution)( gen );
+            }
+            else
+            {
+                if ( !real_distribution )
+                    real_distribution = new std::uniform_real_distribution<_Scalar>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
 
-//    x[0] = 1;
-//    x[1] = 1;
-//    x[2] = 1;
-//    x[3] = 1;
+                x[ j ] = (*real_distribution)( gen );
+            }
+        } //...for variables
 
-    // cleanup
-    if ( int_distribution ) { delete int_distribution; int_distribution = NULL; }
-    if ( real_distribution ) { delete real_distribution; real_distribution = NULL; }
+        //    x[0] = 1;
+        //    x[1] = 1;
+        //    x[2] = 1;
+        //    x[3] = 1;
+
+        // cleanup
+        if ( int_distribution ) { delete int_distribution; int_distribution = NULL; }
+        if ( real_distribution ) { delete real_distribution; real_distribution = NULL; }
+    }
 
     if ( _delegate.isDebug() )
     {

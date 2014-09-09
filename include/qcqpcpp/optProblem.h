@@ -12,7 +12,6 @@ class OptProblem
 {
     public:
         typedef _Scalar                                     Scalar;         //!< \brief Some implementations require this to be double (i.e. Mosek does).
-        //typedef _ReturnType                                 ReturnType;     //!< \brief General returntype of the library used, int or MSKrescodee, etc..
         typedef int                                         ReturnType;     //!< \brief Error code storage type.
         typedef Eigen::Matrix<_Scalar,-1,1>                 VectorX;        //!< \brief RowVector of unkown dimensions.
         typedef Eigen::Triplet<Scalar>                      SparseEntry;    //!< \brief This type is an element of a list of entries before construction of a SparseMatrix.
@@ -61,9 +60,9 @@ class OptProblem
                                                                           OBJ_SENSE            objecitve_sense = OBJ_SENSE::MINIMIZE ) { std::cerr << "[" << __func__ << "]: " << "Please override with library specific set-up logic. See MosekOpt.h for concept." << std::endl; return ReturnType(EXIT_FAILURE); }
 
         //! \brief Constructor unused for the moment. Start with <i>addVariable()</i>.
-                                                  OptProblem             () : _updated(false), _time_limit( Scalar(-1) ), _tol_rel_gap( Scalar(-1) ) {}
+                                                  OptProblem             () : _updated(false), _useStartingPoint(false), _time_limit(Scalar(-1)), _tol_rel_gap(Scalar(-1)) {}
         //! \brief Destructor unused for the moment. Declared virtual for inheritence.
-        virtual                                  ~OptProblem            () { std::cout << "[" << __func__ << "][INFO]: " << "Empty destructor" << std::endl; }
+        virtual                                  ~OptProblem             () { /*std::cout << "[" << __func__ << "][INFO]: " << "Empty destructor" << std::endl;*/ }
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
         //// Variables ////////////////////////////////////////////////////////////////////////////////////////////////
@@ -181,8 +180,14 @@ class OptProblem
 
         //! \brief Setter to store latest solution, to be called from #optimize().
         inline void                              setSolution                    ( VectorX const& sol ) { _x = sol; }
-        //! \brief Setter to store latest solution, to be called from optimize().
-        //inline void                              setInitial                    ( VectorX const& sol ) { _x = sol; }
+
+        //! \brief Setter to set initial solution.
+        inline int                               setStartingPointDense          ( VectorX      const& x0 ) { _x0 = x0; _useStartingPoint = true; return EXIT_SUCCESS; }
+        inline int                               setStartingPoint               ( SparseMatrix const& x0 );
+        //! \brief Getter to check, if _x0 should be used as starting point for the optimization.
+        inline bool                              isUseStartingPoint             ()        const        { return _useStartingPoint; }
+        inline VectorX const&                    getStartingPoint               ()        const        { return _x0; }
+        SparseMatrix                             getStartingPointMatrix         () const;                                       //!< \brief Returns X0, calculated on the fly.
 
         // IO
         inline int                               write                          ( std::string const& path ) const;              //!< \brief Serialize to disk.
@@ -202,6 +207,7 @@ class OptProblem
         inline std::string                      getqoName()                               const { return "qo.csv";  } //!< \brief File name constexpr to store linear objective vector. Used by #write().
         inline std::string                      getQoName()                               const { return "Qo.csv";  } //!< \brief File name constexpr to store quadratic objective matrix. Used by #write().
         inline std::string                      getAName()                                const { return "A.csv";   } //!< \brief File name constexpr to store linear constraints matrix. Used by #write().
+        inline std::string                      getX0Name()                               const { return "X0.csv";  } //!< \brief File name constexpr to store starting point (initial solution) vector. Used by #write().
         //! \brief File name constexpr to store qaudratic constraints matrices. Used by #write().
         inline std::string                      getQiName( int i )                        const { char id[255]; sprintf( id, "Q%d.csv", i ); return std::string( id ); }
 
@@ -228,6 +234,8 @@ class OptProblem
 
         bool                        _updated;             //!< \brief This has to be flipped to true by calling update() for optimize() to run.
         VectorX                     _x;                   //!< \brief Optimize() stores the solution here when finishing.
+        VectorX                     _x0;                  //!< \brief Starting point for optimization. TODO: store sparse instead...
+        bool                        _useStartingPoint;    //!< \brief Decides, if the starting point should be used (if false, a random start is used.) \warning Unused in Mosek, Gurobi
 
         // Parameters
         Scalar                      _time_limit;          //!< \brief Time limit to allow implementation to run for.

@@ -400,6 +400,42 @@ OptProblem<_Scalar>::estimateJacobianOfConstraints() const
     return jacobian;
 } // ...OptProblem::estimateJacobianOfConstraints()
 
+template <typename _Scalar> int
+OptProblem<_Scalar>::setStartingPoint( typename OptProblem<_Scalar>::SparseMatrix const& x0 )
+{
+    int err = EXIT_SUCCESS;
+
+    if ( (x0.outerSize() != 1) && (x0.innerSize() != 1) )
+    {
+        std::cerr << "[" << __func__ << "]: " << "x0 has to be a vector! It's now " << x0.outerSize() << "x" << x0.innerSize() << std::endl;
+        err = EXIT_FAILURE;
+    }
+
+    if ( EXIT_SUCCESS == err )
+    {
+        _x0.resize( x0.rows(), x0.cols() );
+        _x0.setZero();
+
+        for ( int k = 0; k < x0.outerSize(); ++k )
+            for ( typename OptProblem<_Scalar>::SparseMatrix::InnerIterator it(x0, k); it; ++it )
+            {
+                std::cout << "setting " << it.row() << ", " << it.col() << " = " << it.value() << std::endl;
+                _x0( it.row(), it.col() ) = it.value();
+            }
+    }
+
+    return err;
+} //...OptProblem::setStartingPoint()
+
+template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
+OptProblem<_Scalar>::getStartingPointMatrix() const
+{
+    SparseMatrix mx( this->_x0.rows(), 1 );
+    for ( int r = 0; r != this->_x0.rows(); ++r )
+        mx.insert( r, 0 ) = this->_x0( r );
+    return mx;
+} // ...OptProblem::getLinConstraintsMatrix()
+
 //______________________________________________________________________________
 
 template <typename _SparseMatrixT>
@@ -518,25 +554,30 @@ OptProblem<_Scalar>::write( std::string const& path ) const
     // qo
     paths.push_back(getqoName());
     io::writeSparseMatrix( this->getLinObjectivesMatrix(), path + "/" + paths.back(), 0 );
-    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
 
     // Qo
     paths.push_back(getQoName());
     io::writeSparseMatrix( this->getQuadraticObjectivesMatrix(), path + "/" + paths.back(), 0 );
-    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
 
     // A
     paths.push_back(getAName());
     io::writeSparseMatrix( this->getLinConstraintsMatrix(), path + "/" + paths.back(), 0 );
-    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
 
     // Qi
     for ( int i = 0; i != this->getQuadraticConstraints().size(); ++i )
     {
         paths.push_back( getQiName(i) );
         io::writeSparseMatrix( this->getQuadraticConstraintsMatrix(i), path + "/" + paths.back(), 0 );
-        std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << std::endl;
+        std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
     }
+
+    // X0
+    paths.push_back( getX0Name() );
+    io::writeSparseMatrix( this->getStartingPointMatrix(), path + "/" + paths.back(), 0 );
+    std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
 
     std::string proj_path = path + "/problem.proj";
     std::ofstream proj_file( proj_path );
@@ -711,7 +752,7 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
     for ( size_t i = 0; i != paths.size(); ++i )
     {
         std::string fname = paths[i];
-        std::cout << "reading " << proj_path + "/" + paths[i] << std::endl; fflush(stdout);
+        std::cout << "[" << __func__ << "]: " << "reading " << proj_path + "/" + paths[i] << std::endl; fflush(stdout);
         // aux file or sparse matrix
         if ( fname.find("aux") != std::string::npos )
         {
@@ -725,27 +766,33 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
             // save
             if ( fname.find("qo") != std::string::npos ) // lin objective
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << std::endl;
+                std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << ",\t ";
                 err += this->addLinObjectives( mx );
                 std::cout << "problem varcount : " << this->getVarCount() << std::endl;
             } //...if qo
             else if ( fname.find("Qo") != std::string::npos ) // quadratic objective
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << std::endl;
+                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << ",\t ";
                 err += this->addQObjectives( mx );
             } //...if Qo
             else if ( fname.find("A") != std::string::npos ) // lin constraint
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << std::endl;
+                std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << ",\t ";
                 err += this->addLinConstraints( mx );
             } //...if A
             else if ( fname.find("Q") != std::string::npos ) // Qo will be parsed before, so that's fine
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << std::endl;
+                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << ",\t ";
                 err += this->addQConstraints( mx );
+            }
+            else if ( fname.find(this->getX0Name()) != std::string::npos ) // Starting point
+            {
+                std::cout << "read " << proj_path + "/" + paths[i] << " as starting point mx" << ",\t ";
+                err += this->setStartingPoint( mx );
             } //...ifelse sparse matrix type
         } //...sparse matrix
     } //...for project file
+    std::cout << std::endl;
 
     // print summary
     this->printProblem();
