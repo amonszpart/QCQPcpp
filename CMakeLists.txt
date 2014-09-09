@@ -18,6 +18,9 @@ SET( dir ${CMAKE_CURRENT_SOURCE_DIR}/build/${CMAKE_BUILD_TYPE} )
 SET( EXECUTABLE_OUTPUT_PATH ${dir}/bin )#CACHE PATH "Build directory" FORCE)
 SET( LIBRARY_OUTPUT_PATH ${dir}/lib )#CACHE PATH "Build directory" FORCE)
 
+##_____________________________________________________________________________
+# pthreads
+find_package (Threads)
 
 ##_____________________________________________________________________________
 # Mosek
@@ -87,7 +90,10 @@ ADD_LIBRARY( ${PROJECT_NAME} SHARED ${SRC_LIST} ${H_LIST} ${HPP_LIST})
 SET_TARGET_PROPERTIES( ${PROJECT_NAME} PROPERTIES DEBUG_POSTFIX "d")
 set_target_properties( ${PROJECT_NAME} PROPERTIES LINKER_LANGUAGE CXX)
 
-SET ( CUSTOM_TARGET_LINK_LIBRARIES ${BONMIN_LIBRARIES} )
+SET ( CUSTOM_TARGET_LINK_LIBRARIES 
+  ${BONMIN_LIBRARIES} 
+  ${CMAKE_THREAD_LIBS_INIT}
+)
 
 IF(DEFINED ${USE_MOSEK})
   SET ( CUSTOM_TARGET_LINK_LIBRARIES
