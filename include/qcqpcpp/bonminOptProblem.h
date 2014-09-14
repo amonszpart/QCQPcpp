@@ -871,7 +871,6 @@ BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
         throw new BonminOptException( "[BonminOpt::eval_h] m != getConstraintCount()" );
     if ( nele_hess != _delegate.getHessian().nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_h] nele_hess != _delegate.getHessian().nonZeros()" );
-//    assert( nele_hess == 5 );
 
     int entry_id = 0;
     if ( values == NULL )
@@ -899,15 +898,6 @@ BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
             } // ...for col
         } // ...for row
         ret_val = true;
-
-        //    values[0] = 2*lambda[0];
-        //    values[1] = 2*lambda[0];
-
-        //        2,1,0.571389
-        //        3,2,0.571389
-        //        4,1,0.91724
-        //        4,2,0.717526
-        //        4,3,0.91724
     }
 
     if ( _delegate.isDebug() )

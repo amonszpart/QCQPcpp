@@ -9,7 +9,7 @@ namespace qcqpcpp
 {
 
 template <typename _Scalar> int
-OptProblem<_Scalar>::addVariable( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, VAR_TYPE var_type, LINEARITY var_linearity /* = LINEAR */ )
+OptProblem<_Scalar>::addVariable( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, VAR_TYPE var_type, LINEARITY var_linearity /* = LINEAR */, std::string name /* = "" */ )
 {
     // var bound type { MSK_BK_FX = fixed, MSK_BK_FR = free, MSK_BK_LO = blx[j] .. INF, MSK_BK_RA = blx[j] .. bux[j], MSK_BK_UP = -INF .. bux[j] }
     _bkx.push_back( bound_type  );
@@ -23,6 +23,8 @@ OptProblem<_Scalar>::addVariable( BOUND bound_type, Scalar lower_bound, Scalar u
     _type_x.push_back( var_type );
     // variable linearity
     _lin_x.push_back( var_linearity );
+    // variable name
+    _names.push_back( name );
 
     //return EXIT_SUCCESS;
     return _bkx.size()-1;
@@ -148,6 +150,50 @@ OptProblem<_Scalar>::getQuadraticObjectivesMatrix() const
 
     return mx;
 } // ...OptProblem::getQuadraticObjectivesMatrix()
+
+template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
+OptProblem<_Scalar>::estimateJacobianOfConstraints() const
+{
+    if ( _quadConstrList.size() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "Jacobian NOT implemented for quadratic constraints yet..." << std::endl;
+        //throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
+    }
+
+    //test
+    {
+        SparseMatrix mx( 2, 3 );
+        mx.coeffRef( 1, 2 ) += 5;
+        mx.coeffRef( 1, 2 ) += 7;
+
+        std::cout << "test: " << mx << std::endl;
+    }
+
+    SparseMatrix jacobian( getConstraintCount(), getVarCount() );
+    // each row contains its linear coeffs:
+    jacobian.setFromTriplets( _linConstrList.begin(), _linConstrList.end() );
+
+    // plus the coeff * other term from its quadratic matrix
+    for ( int constr_id = 0; constr_id != _quadConstrList.size(); ++constr_id )
+        for ( int entry_id = 0; entry_id != _quadConstrList[constr_id].size(); ++entry_id )
+        {
+            SparseEntry const& entry = _quadConstrList[constr_id][entry_id];
+            if ( entry.row() < entry.col() )
+                std::cerr << "[" << __func__ << "]: " << "non-lower-triangular constraint matrix..." << std::endl;
+
+            // d(c_21 * x_2 * x_1) / dx_2 = c_21 * x_1
+            //jacobian.coeffref( /* row == constr_id: */ constr_id, /* col == var_id */ entry.row() ) +=
+            // d(c_21 * x_2 * x_1) / dx_1 = c_21 * x_2
+
+            // TODO: allow jacobian to have variable references
+        }
+    if ( _quadConstrList.size() )
+    {
+        //throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
+    }
+
+    return jacobian;
+} // ...OptProblem::estimateJacobianOfConstraints()
 
 template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
 OptProblem<_Scalar>::estimateHessianOfLagrangian() const
@@ -385,21 +431,6 @@ OptProblem<_Scalar>::getQuadraticConstraintsMatrix( int i ) const
     return mx;
 } // ...OptProblem::getLinConstraintsMatrix()
 
-template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
-OptProblem<_Scalar>::estimateJacobianOfConstraints() const
-{
-    if ( _quadConstrList.size() )
-    {
-        std::cerr << "[" << __func__ << "]: " << "Jacobian NOT implemented for quadratic constraints yet..." << std::endl;
-        throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
-    }
-
-    SparseMatrix jacobian( getConstraintCount(), getVarCount() );
-    jacobian.setFromTriplets( _linConstrList.begin(), _linConstrList.end() );
-
-    return jacobian;
-} // ...OptProblem::estimateJacobianOfConstraints()
-
 template <typename _Scalar> int
 OptProblem<_Scalar>::setStartingPoint( typename OptProblem<_Scalar>::SparseMatrix const& x0 )
 {
@@ -419,7 +450,6 @@ OptProblem<_Scalar>::setStartingPoint( typename OptProblem<_Scalar>::SparseMatri
         for ( int k = 0; k < x0.outerSize(); ++k )
             for ( typename OptProblem<_Scalar>::SparseMatrix::InnerIterator it(x0, k); it; ++it )
             {
-                std::cout << "setting " << it.row() << ", " << it.col() << " = " << it.value() << std::endl;
                 _x0( it.row(), it.col() ) = it.value();
             }
     }

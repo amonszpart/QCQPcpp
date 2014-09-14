@@ -44,6 +44,7 @@ class OptProblem
                 Scalar         _bux;                 //!< \brief Variable numerical value of upper bound
                 VAR_TYPE       _type_x;              //!< \brief Variable type
                 LINEARITY      _lin_x;               //!< \brief Vairable linearity.
+                std::string    _name;                //!< \brief Name of variable for human reasons.
         };
 
         //! \brief Virtual getter for the implementation specific infinity value. Used, when a bound direction is "unbounded"
@@ -74,12 +75,13 @@ class OptProblem
         //! \param upper_bound  Specify upper bound (set to +INF), if not upper bounded (FREE, GREATER_EQ).
         //! \param var_type     Continuous (default) or integer (for mixed integer programming).
         //! \return             0-indexed id of the just added variable.
-        inline int                               addVariable            ( BOUND     bound_type     = BOUND::FREE
-                                                                        , Scalar    lower_bound    = -getINF()
-                                                                        , Scalar    upper_bound    = +getINF()
-                                                                        , VAR_TYPE  var_type       = VAR_TYPE::CONTINUOUS
-                                                                        , LINEARITY var_lin        = LINEARITY::LINEAR );
-        inline int                               addVariable            ( Variable const& var ) { return this->addVariable( var._bkx, var._blx, var._bux, var._type_x, var._lin_x ); }
+        inline int                               addVariable            ( BOUND       bound_type     = BOUND::FREE
+                                                                        , Scalar      lower_bound    = -getINF()
+                                                                        , Scalar      upper_bound    = +getINF()
+                                                                        , VAR_TYPE    var_type       = VAR_TYPE::CONTINUOUS
+                                                                        , LINEARITY   var_lin        = LINEARITY::LINEAR
+                                                                        , std::string name           = "" );
+        inline int                               addVariable            ( Variable const& var ) { return this->addVariable( var._bkx, var._blx, var._bux, var._type_x, var._lin_x, var._name ); }
 
         inline VAR_TYPE                   const  getVarType             ( int j )         const { return _type_x[j]; }
         inline BOUND                      const  getVarBoundType        ( int j )         const { return _bkx[j]; }
@@ -87,6 +89,7 @@ class OptProblem
         inline Scalar                     const  getVarUpperBound       ( int j )         const { return _bux[j]; }
         inline LINEARITY                  const  getVarLinearity        ( int j )         const { return _lin_x[j]; }
         inline size_t                            getVarCount            ()                const { return _bkx.size(); }     //!< \brief Returns the number of variables currently in the system
+        inline std::string                       getVarName             ( int var_id )    const { return _names[var_id]; }  //!< \brief Returns variable name.
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
         //// Objective function ///////////////////////////////////////////////////////////////////////////////////////
@@ -218,6 +221,7 @@ class OptProblem
         std::vector<Scalar>         _bux;                 //!< \brief Variable numerical value of upper bounds
         std::vector<VAR_TYPE>       _type_x;              //!< \brief Variable type
         std::vector<LINEARITY>      _lin_x;               //!< \brief Variable linearity
+        std::vector<std::string>    _names;               //!< \brief Variable names.
 
         // Objective: 1/2 * X' * Q_o * X + q_o * X + c
         Scalar                      _cfix;                //!< \brief Constant bias to objective function                                   (c)
