@@ -18,7 +18,8 @@ class BonminOptException : public std::runtime_error
 template <typename _Scalar>
 class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
 {
-        typedef Eigen::Matrix<_Scalar,1,-1> VectorX;
+        //typedef Eigen::Matrix<_Scalar,-1,1> VectorX;
+        typedef typename qcqpcpp::OptProblem<_Scalar>::VectorX VectorX;
         enum { NeedsToAlign = (sizeof(VectorX)%16)==0 };
     public:
         EIGEN_MAKE_ALIGNED_OPERATOR_NEW_IF(NeedsToAlign)
@@ -50,24 +51,27 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         //@}
 
         static inline Bonmin::TMINLP::VariableType getVarTypeCustom( typename ParentType::VAR_TYPE var_type );
-        inline SparseMatrix const&  getJacobian            ()        const { return _jacobian; }
-        inline SparseMatrix const&  getHessian             ()        const { return _hessian; }
+        //inline SparseMatrix const   getJacobian            ( VectorX const& x ) const;// { return _jacobian; }
+        //inline SparseMatrix const&  getHessian             ()        const;// { return _hessian; }
         inline VectorX      const&  getCachedqo            ()        const { return _qo; }
         inline SparseMatrix const&  getCachedQo            ()        const { return _Qo; }
         inline SparseMatrix const&  getCachedA             ()        const { return _A; }
+        inline SparseMatrix const&  getCachedQ             ( int const j ) const { return _Qs.at(j); }
 
         inline void printSolutionAtEndOfAlgorithm          ()              { _printSol = true; }
         inline bool isDebug                                ()        const { return _debug; }
+        inline void setDebug                               ( bool const debug ) { _debug = debug; }
         inline bool isPrintSol                             ()        const { return _printSol; }
         inline void setAlgorithm                           ( Bonmin::Algorithm alg ) { _algCode = alg; }
 
     protected:
-        SparseMatrix                 _jacobian; //!< \brief Cached Jacobian of linear constraints.
-        SparseMatrix                 _hessian;  //!< \brief Cached Objective+quadConstriants Hessian, lower triangle only!
+        //SparseMatrix                 _jacobian; //!< \brief Cached Jacobian of linear constraints.
+        //SparseMatrix                 _hessian;  //!< \brief Cached Objective+quadConstriants Hessian, lower triangle only!
 
         VectorX                      _qo;       //!< \brief Cached full linear objective vector.
         SparseMatrix                 _Qo;       //!< \brief Cached full quadratic objective matrix.
         SparseMatrix                 _A;        //!< \brief Cached full linear constraint matrix.
+        std::vector<SparseMatrix>    _Qs;       //!< \brief Cached full quadratic constraint matrices.
 
         Bonmin::Algorithm           _algCode;   //!< \brief Stores the chosen algorihtm code. 0 = B_Bb default.
 
@@ -86,7 +90,12 @@ class BonminTMINLP : public Bonmin::TMINLP
         typedef typename ParentType::SparseMatrix                       SparseMatrix;
         typedef          Eigen::Map<const Eigen::Matrix<Ipopt::Number,-1,1> > MatrixMapT;
 
-        BonminTMINLP( BonminOpt<_Scalar> &delegate ) : _delegate( delegate ) {}
+        BonminTMINLP( BonminOpt<_Scalar> &delegate )
+            : _delegate( delegate )
+            , _ones( VectorX(delegate.getVarCount(),1) ) // row_vector
+        {
+            _ones.setConstant( _Scalar(1.) );
+        }
 
         //! \brief ~BonminOpt   virtual destructor.
         virtual ~BonminTMINLP() {}
@@ -207,6 +216,7 @@ class BonminTMINLP : public Bonmin::TMINLP
 
     protected:
         BonminOpt<_Scalar>  &_delegate;
+        VectorX              _ones;
 }; // ...class BonminTMINLP
 
 } //...ns qcqpcpp
@@ -225,22 +235,29 @@ namespace qcqpcpp
 template <typename _Scalar> int
 BonminOpt<_Scalar>::update( bool verbose /* = false */ )
 {
-    _jacobian = this->estimateJacobianOfConstraints();
+//    _jacobian = this->estimateJacobianOfConstraints();
+    VectorX ones( this->getVarCount(), 1 ); ones.setConstant( _Scalar(1.) );
+    this->getJacobian( ones );
     if ( isDebug() )
     {
-        std::cout<<"[" << __func__ << "]: " << "jacobian ok" << _jacobian << std::endl; fflush(stdout);
+        std::cout<<"[" << __func__ << "]: " << "jacobian ok" << this->_jacobian << std::endl; fflush(stdout);
     }
 
-    _hessian = this->estimateHessianOfLagrangian();
+    this->precalcHessianCoeffs();
     if ( isDebug() )
     {
-        std::cout<<"[" << __func__ << "]: " << "hessian ok" << _hessian << std::endl; fflush(stdout);
+        std::cout<<"[" << __func__ << "]: " << "hessian ok";
+        for ( int i = 0; i != this->_hessians.size(); ++i )
+            std::cout << "_hessians[" << i << "]:\n" << this->_hessians[i] << std::endl;
+        fflush(stdout);
     }
 
     // NOTE: _qo is a columnvector for convenient multiplication reasons, whilst sparsematrices are rowVectors by convention
-    _qo = this->getLinObjectivesMatrix().transpose();
+    _qo = this->getLinObjectivesMatrix();
     _Qo = this->getQuadraticObjectivesMatrix();
     _A  = this->getLinConstraintsMatrix();
+    for ( int j = 0; j != this->getConstraintCount(); ++j )
+        _Qs.push_back( this->getQuadraticConstraintsMatrix(j) );
 
     this->_updated = true;
 
@@ -298,6 +315,7 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogLevel, 5 );
     //bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, 1000 );
     bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogInterval, 10 );
+    bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, 150 );
 
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxNode = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxNodes ) << std::endl;
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxIterations = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxIterations ) << std::endl;
@@ -333,6 +351,7 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
         //bb.setUsingCouenne( true ); // testing
 
         bb( bonmin2 ); // process parameter file using Ipopt and do branch and bound using Cbc
+
         std::cout << "[" << __func__ << "]: " << "bonmin finished" << std::endl; fflush(stdout);
     }
     catch ( Bonmin::TNLPSolver::UnsolvedError *E )
@@ -429,7 +448,7 @@ BonminTMINLP<_Scalar>::get_variables_linearity( Ipopt::Index n, Ipopt::TNLP::Lin
 
     // NOTE: this is hard coded for now, non-lin cases not tested
     for ( int j = 0; j != _delegate.getVarCount(); ++j )
-        var_types[j] = Ipopt::TNLP::LINEAR;
+        var_types[j] = Ipopt::TNLP::NON_LINEAR;
 
     if ( _delegate.isDebug() )
     {
@@ -453,7 +472,8 @@ BonminTMINLP<_Scalar>::get_constraints_linearity( Ipopt::Index m, Ipopt::TNLP::L
 
     // NOTE: this is hard coded for now, non-lin cases not tested
     for ( int i = 0; i != _delegate.getConstraintCount(); ++i )
-        const_types[ i ] = Ipopt::TNLP::LINEAR;
+        //const_types[ i ] = Ipopt::TNLP::LINEAR;
+        const_types[ i ] = Ipopt::TNLP::NON_LINEAR;
 
     if ( _delegate.isDebug() )
     {
@@ -479,8 +499,9 @@ BonminTMINLP<_Scalar>::get_nlp_info( Ipopt::Index                & n
 
     n           = _delegate.getVarCount();            // number of variable
     m           = _delegate.getConstraintCount();     // number of constraints
-    nnz_jac_g   = _delegate.getJacobian().nonZeros(); // number of non zeroes in Jacobian
-    nnz_h_lag   = _delegate.getHessian().nonZeros();  // number of non zeroes in Hessian of Lagrangean
+    nnz_jac_g   = _delegate.getJacobian( _ones ).nonZeros(); // number of non zeroes in Jacobian
+    VectorX ones( m, 1 ); ones.setConstant( _Scalar(1.) );
+    nnz_h_lag   = _delegate.getHessian( 1., ones ).nonZeros();  // number of non zeroes in Hessian of Lagrangean
     index_style = Ipopt::TNLP::C_STYLE;               // zero-indexed
 
     if ( _delegate.isDebug() )
@@ -578,6 +599,8 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
 
     if ( init_lambda )
         throw new BonminOptException( "[BonminOpt::get_starting_point] init_lambda..." );
+    if ( init_z )
+        throw new BonminOptException( "[BonminOpt::get_starting_point] init_z..." );
     //assert( !init_lambda );
 
     // random for now...
@@ -602,7 +625,7 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
         for ( int j = 0; j != _delegate.getVarCount(); ++j )
         {
             if (    (_delegate.getVarType(j) == ParentType::VAR_TYPE::INTEGER)
-                    || (_delegate.getVarType(j) == ParentType::VAR_TYPE::BINARY ) )
+                 || (_delegate.getVarType(j) == ParentType::VAR_TYPE::BINARY ) )
             {
                 if ( !int_distribution )
                     int_distribution = new std::uniform_int_distribution<>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
@@ -611,9 +634,23 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
             else
             {
                 if ( !real_distribution )
+                {
+                    if ( _delegate.isDebug() )
+                    {
+                        std::cout << "[" << __func__ << "]: " << "creating uniform_real_distributionn with bounds " << _delegate.getVarLowerBound(j) << "..." << _delegate.getVarUpperBound(j) << std::endl;
+                    }
                     real_distribution = new std::uniform_real_distribution<_Scalar>( _delegate.getVarLowerBound(j), _delegate.getVarUpperBound(j) );
+                }
 
                 x[ j ] = (*real_distribution)( gen );
+
+                if ( isinf(x[j]) )
+                    std::cerr << "[" << __func__ << "]: " << "warning, returning inf as starting point x0[" << j << "]..." << std::endl;
+
+                if ( _delegate.isDebug() )
+                {
+                    std::cout << "[" << __func__ << "]: " << "rolled random: " << x[j] << std::endl;
+                }
             }
         } //...for variables
 
@@ -629,6 +666,7 @@ BonminTMINLP<_Scalar>::get_starting_point( Ipopt::Index    n
 
     if ( _delegate.isDebug() )
     {
+        std::cout<<"x:";for(size_t vi=0;vi!=n;++vi)std::cout<<x[vi]<<" ";std::cout << "\n";
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
@@ -651,10 +689,11 @@ BonminTMINLP<_Scalar>::eval_f( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
 
     MatrixMapT x_eig( x, _delegate.getVarCount() );
-    obj_value = (x_eig.transpose() * _delegate.getCachedQo() * x_eig + _delegate.getCachedqo() * x_eig).coeff( 0 );
+    obj_value = (x_eig.transpose() * _delegate.getCachedQo() * x_eig + x_eig.transpose() * _delegate.getCachedqo() ).coeff( 0 );
 
     if ( _delegate.isDebug() )
     {
+        std::cout << "[" << __func__ << "]: " << "obj_value: " << obj_value << " from x " << x_eig.transpose() << std::endl;
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
@@ -702,6 +741,8 @@ BonminTMINLP<_Scalar>::eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool
 
   if ( _delegate.isDebug() )
   {
+      std::cout << "[" << __func__ << "]: " << "grad_f: ";
+      for(size_t vi=0;vi!=n;++vi)std::cout<<grad_f[vi]<<" ";std::cout << "\n";
       std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
       fflush( stdout );
   }
@@ -727,9 +768,14 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     MatrixMapT x_eig( x, _delegate.getVarCount() );
     Eigen::Matrix<_Scalar,-1,1> c = _delegate.getCachedA() * x_eig;
-    for ( int i = 0; i != _delegate.getConstraintCount(); ++i )
+
+    for ( int j = 0; j != _delegate.getConstraintCount(); ++j )
     {
-        g[i] = c(i);
+        std::cout << "[" << __func__ << "]: " << "_delegate.getCachedQ(" << j << "): " << _delegate.getCachedQ(j) << std::endl;
+        std::cout << "[" << __func__ << "]: " << "x_eig: " << x_eig.transpose() << std::endl;
+        std::cout << "x_eig.transpose() * _delegate.getCachedQ(j) * x_eig: " << (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).rows() << "x" << (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).cols() << std::endl;
+        c(j) += (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).coeff(0);
+        g[j] = c(j);
     }
 
     //  g[0] = (x[1] - 1./2.)*(x[1] - 1./2.) + (x[2] - 1./2.)*(x[2] - 1./2.);
@@ -738,6 +784,7 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     if ( _delegate.isDebug() )
     {
+        std::cout << "[" << __func__ << "]: " << "returned " << c.transpose() << " from x " << x_eig.transpose() << std::endl;
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
@@ -766,17 +813,57 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
     }
 
     if ( n != _delegate.getVarCount() )
+    {
+        std::cerr  << "[" << __func__ << "]: " << "n " << n << " != " << _delegate.getVarCount() << " getVarCount()\n";
         throw new BonminOptException( "[BonminOpt::eval_jac_g] n != getVarCount()" );
-    if ( nnz_jac != _delegate.getJacobian().nonZeros() )
+    }
+
+    MatrixMapT x_eig( x, _delegate.getVarCount() );
+
+    Eigen::Matrix<Ipopt::Number,-1,1> *safe_x = NULL;
+    if ( x )
+    {
+        for ( size_t vi = 0; vi != n; ++vi )
+        {
+            if ( isinf(x[vi]) )
+            {
+                if ( !safe_x ) safe_x = new Eigen::Matrix<Ipopt::Number,-1,1>(n,1);
+
+                safe_x->coeffRef(vi) = _delegate.getINF();
+            }
+        }
+    }
+
+    SparseMatrix jacobian = x ? _delegate.getJacobian( safe_x ? *safe_x : x_eig )
+                              : _delegate.getJacobian( _ones );
+    std::cout << "x: " << (x == NULL ? "NULL" : "not NULL")
+              << ", values: " << (values == NULL ? "NULL" : "not NULL")
+              << ", new_x: " << (new_x ? "true" : "false")
+              << ", jac: " << jacobian << std::endl; fflush(stdout);
+    if ( x )
+    {
+        std::cout<<"x:";
+        for(size_t vi=0;vi!=n;++vi)
+        {
+            std::cout<<x[vi];
+            if ( x[vi] != x[vi] )
+                std::cout << "A";
+            if ( isinf(x[vi]) )
+                std::cout << "B";
+            std::cout << " ";
+        }
+        std::cout << "\n";
+    }
+
+    if ( nnz_jac != jacobian.nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_jac_g] nnz_jac != _jacobian.nonZeros()" );
-//        assert( nnz_jac == 4 );
 
     int entry_id = 0;
     if ( values == NULL )
     {
-        for ( int row = 0; row != _delegate.getJacobian().outerSize(); ++row )
+        for ( int row = 0; row != jacobian.outerSize(); ++row )
         {
-            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(_delegate.getJacobian(),row);
+            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(jacobian,row);
                   it; ++it, ++entry_id )
             {
                 iRow[ entry_id ] = it.row();
@@ -784,43 +871,18 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
             } // ...for col
         } // ...for row
 
-        //    iRow[0] = 2;
-        //    jCol[0] = 1;
-
-        //    iRow[1] = 3;
-        //    jCol[1] = 1;
-
-        //    iRow[2] = 1;
-        //    jCol[2] = 2;
-
-        //    iRow[3] = 2;
-        //    jCol[3] = 2;
-
-        //    iRow[4] = 1;
-        //    jCol[4] = 3;
-
-        //    iRow[5] = 3;
-        //    jCol[5] = 3;
-
-        //    iRow[6] = 3;
-        //    jCol[6] = 4;
-
         ret_val = true;
     } // ... if values == NULL
     else
     {
-        // NOTE: ONLY for linear constraints
-        for ( int row = 0; row != _delegate.getJacobian().outerSize(); ++row )
+        for ( int row = 0; row != jacobian.outerSize(); ++row )
         {
-            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(_delegate.getJacobian(),row);
+            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(jacobian,row);
                   it; ++it, ++entry_id )
             {
                 values[ entry_id ] = it.value();
             } // ...for col
         } // ...for row
-
-        //    values[0] = 1.;
-        //    values[1] = 1;
 
         //    values[2] = 2*x[1] - 1;
         //    values[3] = -1.;
@@ -835,10 +897,15 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 
     if ( _delegate.isDebug() )
     {
+        std::cout << "[" << __func__ << "]: " << "returned " << jacobian;
+        if ( x ) std::cout << "\nfrom " << MatrixMapT(x, _delegate.getVarCount()).transpose();
+        std::cout << std::endl;
+
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
 
+    if ( safe_x ) { delete safe_x; safe_x = NULL; }
     return ret_val;
 } // ... BonminOpt::eval_jac_g()
 
@@ -865,19 +932,25 @@ BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
         fflush( stdout );
     }
 
+
     if ( n != _delegate.getVarCount() )
         throw new BonminOptException( "[BonminOpt::eval_h] n != getVarCount()" );
     if ( m != _delegate.getConstraintCount() )
         throw new BonminOptException( "[BonminOpt::eval_h] m != getConstraintCount()" );
-    if ( nele_hess != _delegate.getHessian().nonZeros() )
+
+
+    SparseMatrix hessian = lambda ? _delegate.getHessian( obj_factor, MatrixMapT(lambda, m) )
+                                  : _delegate.getHessian( obj_factor, VectorX::Ones(m,1) );
+
+    if ( nele_hess != hessian.nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_h] nele_hess != _delegate.getHessian().nonZeros()" );
 
     int entry_id = 0;
     if ( values == NULL )
     {
-        for ( int row = 0; row != _delegate.getHessian().outerSize(); ++row )
+        for ( int row = 0; row != hessian.outerSize(); ++row )
         {
-            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(_delegate.getHessian(),row);
+            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(hessian,row);
                   it; ++it, ++entry_id )
             {
                 iRow[ entry_id ] = it.row();
@@ -889,9 +962,9 @@ BonminTMINLP<_Scalar>::eval_h( Ipopt::Index          n
     }
     else {
         // NOTE: lower triangular only please!
-        for ( int row = 0; row != _delegate.getHessian().outerSize(); ++row )
+        for ( int row = 0; row != hessian.outerSize(); ++row )
         {
-            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(_delegate.getHessian(),row);
+            for ( typename Eigen::SparseMatrix<_Scalar,Eigen::RowMajor>::InnerIterator it(hessian,row);
                   it; ++it, ++entry_id )
             {
                 values[ entry_id ] = it.value() * obj_factor;

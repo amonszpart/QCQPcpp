@@ -7,13 +7,18 @@
 namespace qcqpcpp
 {
 
+class OptProblemException : public std::runtime_error
+{
+    using std::runtime_error::runtime_error;
+};
+
 template <typename _Scalar>
 class OptProblem
 {
     public:
         typedef _Scalar                                     Scalar;         //!< \brief Some implementations require this to be double (i.e. Mosek does).
         typedef int                                         ReturnType;     //!< \brief Error code storage type.
-        typedef Eigen::Matrix<_Scalar,-1,1>                 VectorX;        //!< \brief RowVector of unkown dimensions.
+        typedef Eigen::Matrix<_Scalar,-1,1>                 VectorX;        //!< \brief ColVector of unkown dimensions.
         typedef Eigen::Triplet<Scalar>                      SparseEntry;    //!< \brief This type is an element of a list of entries before construction of a SparseMatrix.
         typedef std::vector<SparseEntry>                    SparseEntries;  //!< \brief A list of entries before construction. SparseMatrices are created in a lazy fashion.
         typedef Eigen::SparseVector<Scalar,Eigen::RowMajor> SparseVector;   //!< \brief Unused.
@@ -116,7 +121,10 @@ class OptProblem
         // Hessian of Lagrangian
         //! \brief  estimateHessianOfLagrangian  Estimates Hessian of Lagrangian from Quadratic objective matrix.
         //! \return SparseMatrix                 Lower triangle only, assumed to be symmetric. (TODO: add quadratic constraints).
-        inline SparseMatrix                      estimateHessianOfLagrangian    ()        const;
+        //inline SparseMatrix                      estimateHessianOfLagrangian    ()        const;
+        inline int                               precalcHessianCoeffs           ();
+        inline std::vector<SparseMatrix>  const& getHessians                    ()        const { return _hessians; }
+        inline SparseMatrix               const  getHessian                     ( Scalar const obj_factor, VectorX const& lambdas ) const;
 
         ///////////////////////////////////////////////////////////////////////////////////////////////////////////////
         //// Constraints //////////////////////////////////////////////////////////////////////////////////////////////
@@ -159,7 +167,8 @@ class OptProblem
         inline Scalar                     const  getConstraintUpperBound        ( int i ) const { return _buc[i]; }             //!< \brief Returns upper bound of i-th constraint.
         inline LINEARITY                  const  getConstraintLinearity         ( int j ) const { return _lin_c[j]; }
         inline size_t                            getConstraintCount             ()        const { return _bkc.size(); }         //!< \brief Returns the number of linear constraint lines currently in the system.
-        inline SparseMatrix                      estimateJacobianOfConstraints  ()        const;
+        //inline SparseMatrix                      estimateJacobianOfConstraints  ()        const;
+        inline SparseMatrix               const  getJacobian                    ( VectorX const& x );                           //!< \brief Calculated on the fly from input vector x and precalculated _jacobian.
 
         //! \brief addQConstraint       Append an entry to a quadratic constraint matrix. Duplicate entries are summed in a lazy fashion (when <i>update()</i>) is called.
         //! \brief                      The corresponding linear constraints and bounds are stored in A.row( constr_id ), and _b[k|l|u]c[constr_id].
@@ -235,6 +244,8 @@ class OptProblem
         std::vector<LINEARITY>      _lin_c;               //!< \brief Constraints linearity
         SparseEntries               _linConstrList;       //!< \brief Stores values to construct the A linear constraint matrix, unordered. (A, A.cols = n = # of vars, A.rows = m = # of constraints)
         std::vector<SparseEntries>  _quadConstrList;      //!< \brief Accumulator for Quadratic constraint values                           [Q0, Q1, ... Qi ... Qm ]
+        std::vector<SparseMatrix>   _hessians;            //!< \brief [0] = Hessian of ObjectiveFunction, [1..constrCount] = Hessian of Constraints
+        SparseMatrix                _jacobian;            //!< \brief Fixed part (linear) of jacobian of constraints.
 
         bool                        _updated;             //!< \brief This has to be flipped to true by calling update() for optimize() to run.
         VectorX                     _x;                   //!< \brief Optimize() stores the solution here when finishing.

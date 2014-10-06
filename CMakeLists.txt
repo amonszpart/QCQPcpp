@@ -107,10 +107,11 @@ MESSAGE (${CUSTOM_TARGET_LINK_LIBRARIES})
 # LINK
 TARGET_LINK_LIBRARIES( ${PROJECT_NAME} ${CUSTOM_TARGET_LINK_LIBRARIES} )
 
-
+##_____________________________________________________________________________
 ## TEST
 SET( TEST_SRC_LIST
     src/test/test.cpp
+    src/test/testQuadraticConstraints.cpp
 )
 
 SET( TEST_PROJECT_NAME "test_${PROJECT_NAME}" )

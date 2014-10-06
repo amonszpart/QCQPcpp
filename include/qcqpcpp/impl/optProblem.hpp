@@ -151,79 +151,120 @@ OptProblem<_Scalar>::getQuadraticObjectivesMatrix() const
     return mx;
 } // ...OptProblem::getQuadraticObjectivesMatrix()
 
-template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
-OptProblem<_Scalar>::estimateJacobianOfConstraints() const
+template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix const
+OptProblem<_Scalar>::getJacobian( VectorX const& x )
 {
-    if ( _quadConstrList.size() )
+    //typedef typename BonminOpt<_Scalar>::SparseEntry SparseEntry;
+
+    // init linear cache part
+    if ( !this->_jacobian.size() )
     {
-        std::cerr << "[" << __func__ << "]: " << "Jacobian NOT implemented for quadratic constraints yet..." << std::endl;
-        //throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
+        this->_jacobian = SparseMatrix( getConstraintCount(), getVarCount() );
+        this->_jacobian.setFromTriplets( _linConstrList.begin(), _linConstrList.end() );
     }
 
-    //test
+    // linear part is cached
+    SparseMatrix jacobian = this->_jacobian;
+    if ( x.rows() != jacobian.cols() )
     {
-        SparseMatrix mx( 2, 3 );
-        mx.coeffRef( 1, 2 ) += 5;
-        mx.coeffRef( 1, 2 ) += 7;
-
-        std::cout << "test: " << mx << std::endl;
+        std::cerr << "[" << __func__ << "]: "
+                  << "input vector x is not varCount sized " << x.rows() << " x " << x.cols() << " .rows != " << jacobian.rows() << " x " << jacobian.cols() << ".cols" << std::endl;
+        throw new OptProblemException( "input vector x is not varCount sized" );
     }
 
-    SparseMatrix jacobian( getConstraintCount(), getVarCount() );
-    // each row contains its linear coeffs:
-    jacobian.setFromTriplets( _linConstrList.begin(), _linConstrList.end() );
-
+    // quadratic part is estimated on the fly
     // plus the coeff * other term from its quadratic matrix
-    for ( int constr_id = 0; constr_id != _quadConstrList.size(); ++constr_id )
-        for ( int entry_id = 0; entry_id != _quadConstrList[constr_id].size(); ++entry_id )
+    for ( int constr_id = 0; constr_id != this->_quadConstrList.size(); ++constr_id )
+        for ( int entry_id = 0; entry_id != this->_quadConstrList[constr_id].size(); ++entry_id )
         {
-            SparseEntry const& entry = _quadConstrList[constr_id][entry_id];
-            if ( entry.row() < entry.col() )
+            SparseEntry const& entry = this->_quadConstrList[constr_id][entry_id];
+
+            if ( entry.row() < entry.col() ) // above diagonal
+            {
                 std::cerr << "[" << __func__ << "]: " << "non-lower-triangular constraint matrix..." << std::endl;
+                throw new OptProblemException("non-lower-triangular constraint matrix...");
+            }
+            else if ( entry.row() == entry.col() ) // on diagonal
+            {
+                jacobian.coeffRef( /* row == constr_id: */ constr_id
+                                 , /* col == var_id:    */ entry.row()                // J(i,j) =
+                                 ) += entry.value() * _Scalar(2.) * x( entry.col() ); //        = 2 * c_jj * x_j
+            }
+            else // below diagonal -> derive to two columns for the two variables
+            {
+                // d(c_21 * x_2 * x_1) / dx_2 = c_21 * x_1
+                jacobian.coeffRef( /* row == constr_id: */ constr_id
+                                 , /* col == var_id:    */ entry.row()  // J(i,2) =
+                                 ) += entry.value() * x( entry.col() ); //        = c_21 * x_1
 
-            // d(c_21 * x_2 * x_1) / dx_2 = c_21 * x_1
-            //jacobian.coeffref( /* row == constr_id: */ constr_id, /* col == var_id */ entry.row() ) +=
-            // d(c_21 * x_2 * x_1) / dx_1 = c_21 * x_2
 
-            // TODO: allow jacobian to have variable references
-        }
-    if ( _quadConstrList.size() )
-    {
-        //throw new std::runtime_error( "[OptProblem::estimateJacobianOfConstraints] Jacobian NOT implemented for quadratic constraints yet..." );
-    }
+                // d(c_21 * x_2 * x_1) / dx_1 = c_21 * x_2
+                jacobian.coeffRef( /* row == constr_id: */ constr_id
+                                 , /* col == var_id:    */ entry.col()  // J(i,1) =
+                                 ) += entry.value() * x( entry.row() ); //        = c_21 * x_2
+            }
+
+        } //...entries
 
     return jacobian;
-} // ...OptProblem::estimateJacobianOfConstraints()
+} //...getJacobian
 
-template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
-OptProblem<_Scalar>::estimateHessianOfLagrangian() const
+template <typename _Scalar> int
+OptProblem<_Scalar>::precalcHessianCoeffs()
 {
-    if ( _quadConstrList.size() )
-    {
-        std::cerr << "[" << __func__ << "]: " << "Hessian NOT implemented for quadratic constraints yet..." << std::endl;
-        throw new std::runtime_error( "[OptProblem::estimateHessianOfLagrangian] Hessian NOT implemented for quadratic constraints yet..." );
-    }
+//    if ( _quadConstrList.size() )
+//    {
+//        std::cerr << "[" << __func__ << "]: " << "Hessian NOT implemented for quadratic constraints yet..." << std::endl;
+//        throw new std::runtime_error( "[OptProblem::estimateHessianOfLagrangian] Hessian NOT implemented for quadratic constraints yet..." );
+//    }
 
-    SparseMatrix hessian( getVarCount(), getVarCount() );
-    hessian.reserve( _quadObjList.size() );
+    _hessians.resize( /* obj */ 1 + /* constraints: */ this->getConstraintCount() );
+
+    _hessians[0] = SparseMatrix( getVarCount(), getVarCount() );
+    _hessians[0].reserve( _quadObjList.size() );
     for ( int i = 0; i != _quadObjList.size(); ++i )
     {
         // (c * x^2)'' == 2c. Second derivative has a 2 multiplier if it's a squared variable.
         if ( _quadObjList[i].row() != _quadObjList[i].col() )
-        {
-//                std::cout << "hessian.outerSize: " << hessian.outerSize() << ", innerSize: " << hessian.innerSize()
-//                          << ", inserting to " << _quadObjList[i].row() << ", "
-//                          << _quadObjList[i].col() << " = " << _quadObjList[i].value()
-//                          << std::endl;
-
-            hessian.insert( _quadObjList[i].row(), _quadObjList[i].col() ) = _quadObjList[i].value();
-        }
+            _hessians[0].coeffRef( _quadObjList[i].row(), _quadObjList[i].col() ) += _quadObjList[i].value();
         else
-            hessian.insert( _quadObjList[i].row(), _quadObjList[i].col() ) = _Scalar(2) * _quadObjList[i].value();
+        {
+            std::cout << "[" << __func__ << "]: " << "inserting _hessians[0]" << _quadObjList[i].row() << ", " << _quadObjList[i].col() << " = " << _quadObjList[i].value() << std::endl;
+            _hessians[0].coeffRef( _quadObjList[i].row(), _quadObjList[i].col() ) += _Scalar(2) * _quadObjList[i].value();
+        }
     } // for linConstrList
 
+    for ( int j = 0; j != _quadConstrList.size(); ++j )
+    {
+        _hessians[1+j] = SparseMatrix( getVarCount(), getVarCount() );
+        for ( int c = 0; c != _quadConstrList[j].size(); ++c )
+        {
+            SparseEntry const& entry = _quadConstrList[j][c];
+            _hessians[1+j].coeffRef( entry.row(), entry.col() ) += entry.value();
+            _hessians[1+j].coeffRef( entry.col(), entry.row() ) += entry.value();
+        } //...for constraint entries
+    } //...for constraints
+
+    return EXIT_SUCCESS;
+} // ...OptProblem::precalcHessianCoeffs()
+
+template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix const
+OptProblem<_Scalar>::getHessian( Scalar const obj_factor, VectorX const& lambdas ) const
+{
+    if ( lambdas.size() != _hessians.size() - 1 )
+    {
+        std::cerr <<"[" << __func__ << "]: " << "lambdas.size() " << lambdas.size() << " != " << _hessians.size() - 1 << "_hessians.size()-1" << std::endl;
+        throw new OptProblemException( "getHessian size error" );
+    }
+
+    SparseMatrix hessian = _hessians[0] * obj_factor;
+    for ( int j = 0; j != _hessians.size()-1; ++j )
+    {
+        hessian += _hessians[1+j] * lambdas[j];
+    }
+
     return hessian;
-} // ...OptProblem::estimateHessianOfLagrangian()
+}
 
 //______________________________________________________________________________
 
@@ -381,7 +422,10 @@ OptProblem<_Scalar>::addQConstraint( int constr_id, int i, int j, Scalar coeff )
 
     // only lower triangle
     if ( j > i )
+    {
+        std::cerr << "[" << __func__ << "]: " << "swapping i and j to make it lower triangular" << std::endl;
         std::swap( i, j );
+    }
 
     _quadConstrList[constr_id].push_back( SparseEntry(i,j,coeff) );
     std::cout << "[" << __func__ << "]: " << "qconstrlist is now " << _quadConstrList.size() << "( " << _quadConstrList[0].size() << ")" << " long" << std::endl;
@@ -396,6 +440,11 @@ OptProblem<_Scalar>::addQConstraints( SparseMatrix const& mx )
     {
         std::cerr << "[" << __func__ << "]: " << "mx has to be n x n, where n == varCount(" << this->getVarCount() << ")...returning" << std::endl;
         return EXIT_FAILURE;
+    }
+    if ( this->_quadConstrList.size() >= this->getConstraintCount() )
+    {
+        std::cerr << "[" << __func__ << "]: " << "this->_quadConstrList.size() " << this->_quadConstrList.size() << " >= " << this->getConstraintCount() << " this->getConstraintCount(), call addLinConstr first!" << std::endl;
+        throw new OptProblemException( "Too many quadratic constraints" );
     }
 
     this->_quadConstrList.push_back( SparseEntries() );
@@ -419,13 +468,13 @@ OptProblem<_Scalar>::getLinConstraintsMatrix() const
 } // ...OptProblem::getLinConstraintsMatrix()
 
 template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix
-OptProblem<_Scalar>::getQuadraticConstraintsMatrix( int i ) const
+OptProblem<_Scalar>::getQuadraticConstraintsMatrix( int j ) const
 {
     SparseMatrix mx( this->getVarCount(), this->getVarCount() );
 
-    if ( this->getQuadraticConstraints().size() )
+    if ( this->getQuadraticConstraints().size() > j )
     {
-        mx.setFromTriplets( this->getQuadraticConstraints(i).begin(), this->getQuadraticConstraints(i).end() );
+        mx.setFromTriplets( this->getQuadraticConstraints(j).begin(), this->getQuadraticConstraints(j).end() );
     }
 
     return mx;
@@ -452,6 +501,8 @@ OptProblem<_Scalar>::setStartingPoint( typename OptProblem<_Scalar>::SparseMatri
             {
                 _x0( it.row(), it.col() ) = it.value();
             }
+
+        _useStartingPoint = true;
     }
 
     return err;

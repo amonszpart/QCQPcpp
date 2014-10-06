@@ -379,6 +379,8 @@ int testQC()
 
 #endif // USE_MOSEK
 
+int testQuadraticConstraintsBonmin(int argc, char** argv);
+
 int testBonmin()
 {
     typedef double Scalar;
@@ -413,6 +415,7 @@ int testBonmin()
     std::cout<<"[" << __func__ << "]: " << "lincon ok" << std::endl; fflush(stdout);
 
     problem.update( true );
+    problem.setAlgorithm( Bonmin::B_BB );
     std::vector<Scalar> x_out;
     problem.optimize( &x_out, qcqpcpp::OptProblem<Scalar>::MINIMIZE );
     // expected outcome: 1 0 1 0;
@@ -427,6 +430,42 @@ int testBonmin()
         std::cerr << "[" << __func__ << "]: " << "BonminTest FAILED" << std::endl;
         return 1;
     }
+}
+
+template <typename Scalar> int
+testReadWriteSparse()
+{
+    Eigen::SparseMatrix<double,Eigen::RowMajor> mx(4,4), mx2;
+    mx.insert( 0,0 ) = 2;
+    mx.insert( 1,1 ) = 4;
+    mx.insert( 2,2 ) = 3;
+    mx.insert( 3,3 ) = 1;
+    mx.insert( 0,3 ) = 9;
+    mx.insert( 2,0 ) = 5;
+    qcqpcpp::io::writeSparseMatrix( mx, "testWriteSparseMatrix.txt", 1 );
+    mx2 = qcqpcpp::io::readSparseMatrix<double>( "testWriteSparseMatrix.txt", -1 );
+    std::cout << mx2 << std::endl;
+    return 1;
+}
+
+int main( int argc, char **argv )
+{
+//    return testDeriv();
+
+    typedef double Scalar;
+    int err = EXIT_SUCCESS;
+
+    err += testQuadraticConstraintsBonmin(argc,argv);
+#ifdef USE_MOSEK
+    err += testQC();
+#endif
+
+    if ( err == EXIT_SUCCESS )
+        std::cout << "[" << __func__ << "]: " << "all tests PASSED" << std::endl;
+    else
+        std::cerr << "[" << __func__ << "]: " << err << " tests FAILED" << std::endl;
+
+    return err;
 }
 
 #if 0
@@ -511,40 +550,4 @@ int testDeriv()
     return (int) status;
 }
 #endif
-
-template <typename Scalar> int
-testReadWriteSparse()
-{
-    Eigen::SparseMatrix<double,Eigen::RowMajor> mx(4,4), mx2;
-    mx.insert( 0,0 ) = 2;
-    mx.insert( 1,1 ) = 4;
-    mx.insert( 2,2 ) = 3;
-    mx.insert( 3,3 ) = 1;
-    mx.insert( 0,3 ) = 9;
-    mx.insert( 2,0 ) = 5;
-    qcqpcpp::io::writeSparseMatrix( mx, "testWriteSparseMatrix.txt", 1 );
-    mx2 = qcqpcpp::io::readSparseMatrix<double>( "testWriteSparseMatrix.txt", -1 );
-    std::cout << mx2 << std::endl;
-    return 1;
-}
-
-int main( int argc, char **argv )
-{
-//    return testDeriv();
-
-    typedef double Scalar;
-    int err = EXIT_SUCCESS;
-
-    //err += testBonmin();
-#ifdef USE_MOSEK
-    err += testQC();
-#endif
-
-    if ( err == EXIT_SUCCESS )
-        std::cout << "[" << __func__ << "]: " << "all tests PASSED" << std::endl;
-    else
-        std::cerr << "[" << __func__ << "]: " << err << " tests FAILED" << std::endl;
-
-    return err;
-}
 
