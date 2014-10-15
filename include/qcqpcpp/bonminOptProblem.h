@@ -381,6 +381,7 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     // output answer
     if ( x_out )
     {
+        x_out->clear();
         x_out->reserve( this->_x.size() );
         for ( int i = 0; i != this->_x.size(); ++i )
             x_out->push_back( this->_x[i] );
@@ -771,9 +772,6 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     for ( int j = 0; j != _delegate.getConstraintCount(); ++j )
     {
-        std::cout << "[" << __func__ << "]: " << "_delegate.getCachedQ(" << j << "): " << _delegate.getCachedQ(j) << std::endl;
-        std::cout << "[" << __func__ << "]: " << "x_eig: " << x_eig.transpose() << std::endl;
-        std::cout << "x_eig.transpose() * _delegate.getCachedQ(j) * x_eig: " << (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).rows() << "x" << (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).cols() << std::endl;
         c(j) += (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).coeff(0);
         g[j] = c(j);
     }
@@ -784,7 +782,6 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     if ( _delegate.isDebug() )
     {
-        std::cout << "[" << __func__ << "]: " << "returned " << c.transpose() << " from x " << x_eig.transpose() << std::endl;
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
@@ -820,6 +817,8 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 
     MatrixMapT x_eig( x, _delegate.getVarCount() );
 
+
+#if 0
     Eigen::Matrix<Ipopt::Number,-1,1> *safe_x = NULL;
     if ( x )
     {
@@ -833,27 +832,10 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
             }
         }
     }
+#endif
 
-    SparseMatrix jacobian = x ? _delegate.getJacobian( safe_x ? *safe_x : x_eig )
+    SparseMatrix jacobian = x ? _delegate.getJacobian( x_eig )
                               : _delegate.getJacobian( _ones );
-    std::cout << "x: " << (x == NULL ? "NULL" : "not NULL")
-              << ", values: " << (values == NULL ? "NULL" : "not NULL")
-              << ", new_x: " << (new_x ? "true" : "false")
-              << ", jac: " << jacobian << std::endl; fflush(stdout);
-    if ( x )
-    {
-        std::cout<<"x:";
-        for(size_t vi=0;vi!=n;++vi)
-        {
-            std::cout<<x[vi];
-            if ( x[vi] != x[vi] )
-                std::cout << "A";
-            if ( isinf(x[vi]) )
-                std::cout << "B";
-            std::cout << " ";
-        }
-        std::cout << "\n";
-    }
 
     if ( nnz_jac != jacobian.nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_jac_g] nnz_jac != _jacobian.nonZeros()" );
@@ -897,15 +879,15 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 
     if ( _delegate.isDebug() )
     {
-        std::cout << "[" << __func__ << "]: " << "returned " << jacobian;
-        if ( x ) std::cout << "\nfrom " << MatrixMapT(x, _delegate.getVarCount()).transpose();
-        std::cout << std::endl;
+        //std::cout << "[" << __func__ << "]: " << "returned " << jacobian;
+        //if ( x ) std::cout << "\nfrom " << MatrixMapT(x, _delegate.getVarCount()).transpose();
+        //std::cout << std::endl;
 
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
 
-    if ( safe_x ) { delete safe_x; safe_x = NULL; }
+    //if ( safe_x ) { delete safe_x; safe_x = NULL; }
     return ret_val;
 } // ... BonminOpt::eval_jac_g()
 
