@@ -234,15 +234,19 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
         }
     } // for linConstrList
 
-    for ( int j = 0; j != _quadConstrList.size(); ++j )
+    for ( int j = 0; j != this->getConstraintCount(); ++j )
     {
         _hessians[1+j] = SparseMatrix( getVarCount(), getVarCount() );
-        for ( int c = 0; c != _quadConstrList[j].size(); ++c )
+
+        if ( j < _quadConstrList.size() ) //if quadratic constraint exists
         {
-            SparseEntry const& entry = _quadConstrList[j][c];
-            _hessians[1+j].coeffRef( entry.row(), entry.col() ) += entry.value();
-            _hessians[1+j].coeffRef( entry.col(), entry.row() ) += entry.value();
-        } //...for constraint entries
+            for ( int c = 0; c != _quadConstrList[j].size(); ++c )
+            {
+                SparseEntry const& entry = _quadConstrList[j][c];
+                _hessians[1+j].coeffRef( entry.row(), entry.col() ) += entry.value();
+                _hessians[1+j].coeffRef( entry.col(), entry.row() ) += entry.value();
+            } //...for constraint entries
+        } //...if quadratic constraint exists
     } //...for constraints
 
     return EXIT_SUCCESS;
@@ -869,7 +873,10 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
             else if ( fname.find(this->getX0Name()) != std::string::npos ) // Starting point
             {
                 std::cout << "read " << proj_path + "/" + paths[i] << " as starting point mx" << ",\t ";
-                err += this->setStartingPoint( mx );
+                if ( mx.nonZeros() )
+                    err += this->setStartingPoint( mx );
+                else
+                    std::cerr << "[" << __func__ << "]: " << "X0 has no entries, not setting starting point" << std::endl;
             } //...ifelse sparse matrix type
         } //...sparse matrix
     } //...for project file
