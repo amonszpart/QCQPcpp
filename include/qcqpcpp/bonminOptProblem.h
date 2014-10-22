@@ -57,6 +57,7 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         inline SparseMatrix const&  getCachedQo            ()        const { return _Qo; }
         inline SparseMatrix const&  getCachedA             ()        const { return _A; }
         inline SparseMatrix const&  getCachedQ             ( int const j ) const { return _Qs.at(j); }
+        inline int  getCachedQSize                         () const { return _Qs.size(); }
 
         inline void printSolutionAtEndOfAlgorithm          ()              { _printSol = true; }
         inline bool isDebug                                ()        const { return _debug; }
@@ -256,8 +257,21 @@ BonminOpt<_Scalar>::update( bool verbose /* = false */ )
     _qo = this->getLinObjectivesMatrix();
     _Qo = this->getQuadraticObjectivesMatrix();
     _A  = this->getLinConstraintsMatrix();
+    int max_Q_with_Nonzero = 0;
+    std::vector<SparseMatrix> Qs;
     for ( int j = 0; j != this->getConstraintCount(); ++j )
-        _Qs.push_back( this->getQuadraticConstraintsMatrix(j) );
+    {
+        Qs.push_back( this->getQuadraticConstraintsMatrix(j) );
+        if ( Qs.back().nonZeros() > 0 )
+        {
+            max_Q_with_Nonzero = j;
+            std::cout << "nonzeros: " << Qs.back().nonZeros() << std::endl;
+        }
+    }
+
+    for ( int j = 0; j != max_Q_with_Nonzero; ++j )
+        _Qs.push_back( Qs[j] );
+        //_Qs.push_back( this->getQuadraticConstraintsMatrix(j) );
 
     this->_updated = true;
 
@@ -744,6 +758,7 @@ BonminTMINLP<_Scalar>::eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool
   {
       std::cout << "[" << __func__ << "]: " << "grad_f: ";
       for(size_t vi=0;vi!=n;++vi)std::cout<<grad_f[vi]<<" ";std::cout << "\n";
+      std::cout<<"x:";for(size_t vi=0;vi!=n;++vi)std::cout<<x[vi]<<" ";std::cout << "\n";
       std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
       fflush( stdout );
   }
@@ -772,7 +787,9 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     for ( int j = 0; j != _delegate.getConstraintCount(); ++j )
     {
-        c(j) += (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).coeff(0);
+        if ( j < _delegate.getCachedQSize() )
+            c(j) += (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).coeff(0);
+
         g[j] = c(j);
     }
 
@@ -836,6 +853,7 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 
     SparseMatrix jacobian = x ? _delegate.getJacobian( x_eig )
                               : _delegate.getJacobian( _ones );
+    print( "jacobian: ", jacobian );
 
     if ( nnz_jac != jacobian.nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_jac_g] nnz_jac != _jacobian.nonZeros()" );

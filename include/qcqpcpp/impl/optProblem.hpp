@@ -8,6 +8,20 @@
 namespace qcqpcpp
 {
 
+template <class _Derived>
+inline void print( std::string const& title, _Derived const& mx )
+{
+    std::cout << title << std::endl;
+    for ( int y = 0; y != mx.rows(); ++y )
+    {
+        for ( int x = 0; x != mx.cols(); ++x )
+        {
+            std::cout << mx.coeff(y,x) << " ";
+        }
+        std::cout << std::endl;
+    }
+}
+
 template <typename _Scalar> int
 OptProblem<_Scalar>::addVariable( BOUND bound_type, Scalar lower_bound, Scalar upper_bound, VAR_TYPE var_type, LINEARITY var_linearity /* = LINEAR */, std::string name /* = "" */ )
 {
@@ -234,6 +248,7 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
         }
     } // for linConstrList
 
+    int max_j_nnz = 0;
     for ( int j = 0; j != this->getConstraintCount(); ++j )
     {
         _hessians[1+j] = SparseMatrix( getVarCount(), getVarCount() );
@@ -247,7 +262,17 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
                 _hessians[1+j].coeffRef( entry.col(), entry.row() ) += entry.value();
             } //...for constraint entries
         } //...if quadratic constraint exists
+
+        if ( _hessians[1+j].nonZeros() )
+            max_j_nnz = 1+j;
     } //...for constraints
+
+    if ( max_j_nnz < _hessians.size()-1 )
+    {
+        std::cout << "resizing hessians to " << max_j_nnz+1 << std::endl;
+        _hessians.resize( max_j_nnz + 1 );
+    }
+
 
     return EXIT_SUCCESS;
 } // ...OptProblem::precalcHessianCoeffs()
@@ -255,19 +280,23 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
 template <typename _Scalar> typename OptProblem<_Scalar>::SparseMatrix const
 OptProblem<_Scalar>::getHessian( Scalar const obj_factor, VectorX const& lambdas ) const
 {
-    if ( lambdas.size() != _hessians.size() - 1 )
-    {
-        std::cerr <<"[" << __func__ << "]: " << "lambdas.size() " << lambdas.size() << " != " << _hessians.size() - 1 << "_hessians.size()-1" << std::endl;
-        throw new OptProblemException( "getHessian size error" );
-    }
+//    if ( lambdas.size() != _hessians.size() - 1 )
+//    {
+//        std::cerr <<"[" << __func__ << "]: " << "lambdas.size() " << lambdas.size() << " != " << _hessians.size() - 1 << " _hessians.size()-1" << std::endl;
+//        throw new OptProblemException( "getHessian size error" );
+//    }
 
-    SparseMatrix hessian = _hessians[0] * obj_factor;
-    for ( int j = 0; j != _hessians.size()-1; ++j )
+    if ( _hessians.size() == 1 )
+        return _hessians[0] * obj_factor;
+    else
     {
-        hessian += _hessians[1+j] * lambdas[j];
+        SparseMatrix hessian = _hessians[0] * obj_factor;
+        for ( int j = 0; j != _hessians.size()-1; ++j )
+        {
+            hessian += _hessians[1+j] * lambdas[j];
+        }
+        return hessian;
     }
-
-    return hessian;
 }
 
 //______________________________________________________________________________
