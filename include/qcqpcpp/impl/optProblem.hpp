@@ -243,7 +243,7 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
             _hessians[0].coeffRef( _quadObjList[i].row(), _quadObjList[i].col() ) += _quadObjList[i].value();
         else
         {
-            std::cout << "[" << __func__ << "]: " << "inserting _hessians[0]" << _quadObjList[i].row() << ", " << _quadObjList[i].col() << " = " << _quadObjList[i].value() << std::endl;
+            //std::cout << "[" << __func__ << "]: " << "inserting _hessians[0]" << _quadObjList[i].row() << ", " << _quadObjList[i].col() << " = " << _quadObjList[i].value() << std::endl;
             _hessians[0].coeffRef( _quadObjList[i].row(), _quadObjList[i].col() ) += _Scalar(2) * _quadObjList[i].value();
         }
     } // for linConstrList
@@ -272,7 +272,6 @@ OptProblem<_Scalar>::precalcHessianCoeffs()
         std::cout << "resizing hessians to " << max_j_nnz+1 << std::endl;
         _hessians.resize( max_j_nnz + 1 );
     }
-
 
     return EXIT_SUCCESS;
 } // ...OptProblem::precalcHessianCoeffs()

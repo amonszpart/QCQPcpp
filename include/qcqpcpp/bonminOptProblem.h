@@ -7,6 +7,9 @@
 #include "qcqpcpp/optProblem.h"
 #include "coin/BonBonminSetup.hpp" // Bonmin::Algorithm enum
 
+
+#include <chrono>
+
 namespace qcqpcpp
 {
 
@@ -57,7 +60,9 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         inline SparseMatrix const&  getCachedQo            ()        const { return _Qo; }
         inline SparseMatrix const&  getCachedA             ()        const { return _A; }
         inline SparseMatrix const&  getCachedQ             ( int const j ) const { return _Qs.at(j); }
-        inline int  getCachedQSize                         () const { return _Qs.size(); }
+        inline int                  getCachedQSize         ()        const { return _Qs.size(); }
+        inline VectorX      const&  getGradF               ()        const { return _grad_f; };
+        inline VectorX           &  getGradF               ()              { return _grad_f; };
 
         inline void printSolutionAtEndOfAlgorithm          ()              { _printSol = true; }
         inline bool isDebug                                ()        const { return _debug; }
@@ -76,9 +81,11 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
 
         Bonmin::Algorithm           _algCode;   //!< \brief Stores the chosen algorihtm code. 0 = B_Bb default.
 
+        VectorX                     _grad_f; //!< \brief Caches eval_grad_f output.
     private:
-        bool                          _printSol;  //!< \brief Flag, to print x in the end.
-        bool                          _debug;
+        bool                        _printSol;  //!< \brief Flag, to print x in the end.
+        bool                        _debug;
+
 
 }; //...class BonminOpt
 
@@ -90,6 +97,7 @@ class BonminTMINLP : public Bonmin::TMINLP
         typedef typename ParentType::VectorX                            VectorX;
         typedef typename ParentType::SparseMatrix                       SparseMatrix;
         typedef          Eigen::Map<const Eigen::Matrix<Ipopt::Number,-1,1> > MatrixMapT;
+        typedef          Eigen::Map<      Eigen::Matrix<Ipopt::Number,-1,1> > MatrixNonConstMapT;
 
         BonminTMINLP( BonminOpt<_Scalar> &delegate )
             : _delegate( delegate )
@@ -256,6 +264,18 @@ BonminOpt<_Scalar>::update( bool verbose /* = false */ )
     // NOTE: _qo is a columnvector for convenient multiplication reasons, whilst sparsematrices are rowVectors by convention
     _qo = this->getLinObjectivesMatrix();
     _Qo = this->getQuadraticObjectivesMatrix();
+    for ( int row = 0; row != _Qo.outerSize(); ++row )
+    {
+        for ( typename SparseMatrix::InnerIterator it(_Qo,row); it; ++it )
+        {
+            if ( it.row() < it.col() )
+            {
+                std::cerr << "Quadratic objective matrix not lower-triangular!" << std::endl; fflush(stderr);
+                throw new BonminOptException("Quadratic objective matrix not lower-triangular!");
+            }
+        }
+    }
+
     _A  = this->getLinConstraintsMatrix();
     int max_Q_with_Nonzero = 0;
     std::vector<SparseMatrix> Qs;
@@ -269,9 +289,10 @@ BonminOpt<_Scalar>::update( bool verbose /* = false */ )
         }
     }
 
-    for ( int j = 0; j != max_Q_with_Nonzero; ++j )
+    for ( int j = 0; j != max_Q_with_Nonzero+1; ++j )
+    {
         _Qs.push_back( Qs[j] );
-        //_Qs.push_back( this->getQuadraticConstraintsMatrix(j) );
+    }
 
     this->_updated = true;
 
@@ -716,52 +737,60 @@ BonminTMINLP<_Scalar>::eval_f( Ipopt::Index n, const Ipopt::Number* x, bool new_
     return true;
 } //...BonminOpt::eval_f()
 
+#define TIC auto start = std::chrono::system_clock::now();
+#define RETIC start = std::chrono::system_clock::now();
+#define TOC(title,it) { std::chrono::duration<double> elapsed_seconds = std::chrono::system_clock::now() - start; \
+                     std::cout << title << ": " << elapsed_seconds.count()/it << " s" << std::endl; }
+
 template <typename _Scalar> bool
 BonminTMINLP<_Scalar>::eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Number* grad_f)
 {
+#if QCQP_DEBUG
     if ( _delegate.isDebug() )
     {
         std::cout << "[" << __func__ << "]: " << "call(n = " << n
                   << ")" << std::endl;
         fflush( stdout );
     }
+#endif
 
-    if ( n != _delegate.getVarCount() )
-        throw new BonminOptException( "[BonminOpt::eval_grad_f] n != getVarCount()" );
-
-    // first derivatives of linear objective function are the coefficients themselves
-    for ( int i = 0; i != _delegate.getVarCount(); ++i )
-      grad_f[i] = _delegate.getCachedqo().coeff(i);
-
-    // first derivatives of quadrative objectives
-    SparseMatrix const& Qo( _delegate.getCachedQo() );
-    for ( int row = 0; row != Qo.outerSize(); ++row )
+#if 0
+    //if ( new_x || !_delegate.getGradF().rows() )
     {
-        for ( typename SparseMatrix::InnerIterator it(Qo,row); it; ++it )
-        {
-            if ( it.row() < it.col() )
-                std::cerr << "[" << __func__ << "]: " << "asdfadfasdf" << std::endl;
+        if ( n != _delegate.getVarCount() )
+            throw new BonminOptException( "[BonminOpt::eval_grad_f] n != getVarCount()" );
 
-            // (d/dx_i)f += c_i,j * x_j
-            grad_f[ it.row() ] += it.value() * x[ it.col() ];
-            // (d/dx_j)f += c_i,j * x_i
-            grad_f[ it.col() ] += it.value() * x[ it.row() ];
-        }
+        // first derivatives of linear objective function are the coefficients themselves
+        //Eigen::Matrix<_Scalar,Eigen::Dynamic,1> _grad_f( _delegate.getCachedqo() );
+        _delegate.getGradF() = _delegate.getCachedqo();
+
+        //SparseMatrix const& Qo          ( _delegate.getCachedQo() ); // cached quadratic matrix
+        MatrixMapT          x_eig       ( x, n );      // input x
+
+        _delegate.getGradF() += (_delegate.getCachedQo() * x_eig).eval() + (_delegate.getCachedQo().transpose() * x_eig).eval();
     }
 
-//  grad_f[0] = -1.;
-//  grad_f[1] = -1.;
-//  grad_f[2] = -1.;
-//  grad_f[3] = 0.;
+    // copy to output
+    MatrixNonConstMapT( grad_f, n ) = _delegate.getGradF();
+#else
+    MatrixNonConstMapT grad_f_eig( grad_f, n );
+    MatrixMapT         x_eig     ( x, n );      // input x
 
+    grad_f_eig = _delegate.getCachedqo() +
+                 (_delegate.getCachedQo()             * x_eig).eval() +
+                 (_delegate.getCachedQo().transpose() * x_eig).eval();
+#endif
+
+
+#if QCQP_DEBUG
   if ( _delegate.isDebug() )
   {
       std::cout << "[" << __func__ << "]: " << "grad_f: ";
-      for(size_t vi=0;vi!=n;++vi)std::cout<<grad_f[vi]<<" ";std::cout << "\n";
-      std::cout<<"x:";for(size_t vi=0;vi!=n;++vi)std::cout<<x[vi]<<" ";std::cout << "\n";
+      for(size_t vi=0;vi!=n;++vi)std::cout<<grad_f[vi]<<" ";std::cout << "\n"; std::cout<<"x:";for(size_t vi=0;vi!=n;++vi)std::cout<<x[vi]<<" ";std::cout << "\n";
       std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
       fflush( stdout );
   }
+#endif
 
   return true;
 } //...BonminOpt::eval_grad_f()
@@ -769,21 +798,24 @@ BonminTMINLP<_Scalar>::eval_grad_f( Ipopt::Index n, const Ipopt::Number* x, bool
 template <typename _Scalar> bool
 BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_x, Ipopt::Index m, Ipopt::Number* g )
 {
-    if ( _delegate.isDebug() )
+
+#   if QCQP_DEBUG
+//    if ( _delegate.isDebug() )
     {
         std::cout << "[" << __func__ << "]: " << "call(n = " << n
                   << ", m = " << m
                   << ")" << std::endl;
         fflush( stdout );
     }
+#   endif
 
     if ( n != _delegate.getVarCount() )
         throw new BonminOptException( "[BonminOpt::eval_g] n != getVarCount()" );
     if ( m != _delegate.getConstraintCount() )
         throw new BonminOptException( "[BonminOpt::eval_g] m != getConstraintCount()" );
 
-    MatrixMapT x_eig( x, _delegate.getVarCount() );
-    Eigen::Matrix<_Scalar,-1,1> c = _delegate.getCachedA() * x_eig;
+    MatrixMapT                  x_eig( x, _delegate.getVarCount() );
+    Eigen::Matrix<_Scalar,-1,1> c    ( _delegate.getCachedA() * x_eig );
 
     for ( int j = 0; j != _delegate.getConstraintCount(); ++j )
     {
@@ -793,15 +825,13 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
         g[j] = c(j);
     }
 
-    //  g[0] = (x[1] - 1./2.)*(x[1] - 1./2.) + (x[2] - 1./2.)*(x[2] - 1./2.);
-    //  g[1] = x[0] - x[1];
-    //  g[2] = x[0] + x[2] + x[3];
-
+#   if QCQP_DEBUG
     if ( _delegate.isDebug() )
     {
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
+#   endif
 
     return true;
 } //...BonminOpt::eval_g()
@@ -818,6 +848,7 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
 {
     bool ret_val = false;
 
+#if QCQP_DEBUG
     if ( _delegate.isDebug() )
     {
         std::cout << "[" << __func__ << "]: " << "call(n = " << n
@@ -825,6 +856,7 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
                   << ")" << std::endl;
         fflush( stdout );
     }
+#endif
 
     if ( n != _delegate.getVarCount() )
     {
@@ -832,28 +864,9 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
         throw new BonminOptException( "[BonminOpt::eval_jac_g] n != getVarCount()" );
     }
 
-    MatrixMapT x_eig( x, _delegate.getVarCount() );
-
-
-#if 0
-    Eigen::Matrix<Ipopt::Number,-1,1> *safe_x = NULL;
-    if ( x )
-    {
-        for ( size_t vi = 0; vi != n; ++vi )
-        {
-            if ( isinf(x[vi]) )
-            {
-                if ( !safe_x ) safe_x = new Eigen::Matrix<Ipopt::Number,-1,1>(n,1);
-
-                safe_x->coeffRef(vi) = _delegate.getINF();
-            }
-        }
-    }
-#endif
-
+    MatrixMapT   x_eig( x, _delegate.getVarCount() );
     SparseMatrix jacobian = x ? _delegate.getJacobian( x_eig )
                               : _delegate.getJacobian( _ones );
-    print( "jacobian: ", jacobian );
 
     if ( nnz_jac != jacobian.nonZeros() )
         throw new BonminOptException( "[BonminOpt::eval_jac_g] nnz_jac != _jacobian.nonZeros()" );
@@ -884,17 +897,10 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
             } // ...for col
         } // ...for row
 
-        //    values[2] = 2*x[1] - 1;
-        //    values[3] = -1.;
-
-        //    values[4] = 2*x[2] - 1;
-        //    values[5] = 1.;
-
-        //    values[6] = 1.;
-
         ret_val = true;
     } // ... else values != NULL
 
+#if QCQP_DEBUG
     if ( _delegate.isDebug() )
     {
         //std::cout << "[" << __func__ << "]: " << "returned " << jacobian;
@@ -904,8 +910,8 @@ BonminTMINLP<_Scalar>::eval_jac_g( Ipopt::Index         n
         std::cout << "[" << __func__ << "]: " << "finish" << std::endl;
         fflush( stdout );
     }
+#endif
 
-    //if ( safe_x ) { delete safe_x; safe_x = NULL; }
     return ret_val;
 } // ... BonminOpt::eval_jac_g()
 
