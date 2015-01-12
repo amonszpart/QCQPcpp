@@ -455,12 +455,12 @@ OptProblem<_Scalar>::addQConstraint( int constr_id, int i, int j, Scalar coeff )
     // only lower triangle
     if ( j > i )
     {
-        std::cerr << "[" << __func__ << "]: " << "swapping i and j to make it lower triangular" << std::endl;
+        //std::cerr << "[" << __func__ << "]: " << "swapping i and j to make it lower triangular" << std::endl;
         std::swap( i, j );
     }
 
     _quadConstrList[constr_id].push_back( SparseEntry(i,j,coeff) );
-    std::cout << "[" << __func__ << "]: " << "qconstrlist is now " << _quadConstrList.size() << "( " << _quadConstrList[0].size() << ")" << " long" << std::endl;
+    //if ( verbose ) std::cout << "[" << __func__ << "]: " << "qconstrlist is now " << _quadConstrList.size() << "( " << _quadConstrList[0].size() << ")" << " long" << std::endl;
 
     return EXIT_SUCCESS;
 } // ...OptProblem::addQConstraint
@@ -555,10 +555,9 @@ template <typename _SparseMatrixT>
 int _printSparseMatrix( _SparseMatrixT const& mx, std::string const& title = "smx", const int entry_limit = 10 )
 {
     int cnt = 0;
-    std::cout << title << ": ";
+    std::cout << title << "(" << mx.nonZeros() << " entries): ";
     if ( mx.nonZeros() )
     {
-
         for ( int row = 0; (row != mx.outerSize()) && (cnt < entry_limit); ++row )
         {
             for ( typename _SparseMatrixT::InnerIterator it(mx,row); it && (cnt < entry_limit); ++it, ++cnt )
@@ -567,7 +566,7 @@ int _printSparseMatrix( _SparseMatrixT const& mx, std::string const& title = "sm
             }
         }
         if ( cnt < mx.nonZeros() )
-            std::cout << "...and " << mx.nonZeros() - cnt << " other entries...";
+            std::cout << "..."; //and " << mx.nonZeros() - cnt << " other entries...";
     }
     else
         std::cout << "empty";
@@ -584,11 +583,11 @@ OptProblem<_Scalar>::printProblem( int entry_limit /* = 10 */ ) const
 
     // Linear objectives
     {
-        std::cout<< "[" << __func__ << "]: " << "_linObjs:";
+        std::cout<< "[" << __func__ << "]: " << "_linObjs(" <<_linObjs.size()<<" entries): ";
         for ( size_t vi=0; (vi!=_linObjs.size()) && (vi < entry_limit); ++vi )
             std::cout << _linObjs[vi] <<" ";
         if ( _linObjs.size() > entry_limit )
-            std::cout << "...and " << _linObjs.size() - entry_limit << " more entries...";
+            std::cout << "...";
         std::cout << "\n";
     }
 
@@ -607,15 +606,28 @@ OptProblem<_Scalar>::printProblem( int entry_limit /* = 10 */ ) const
     }
 
     // Quadratic constraints
-    for ( int i = 0; i != this->getConstraintCount(); ++i )
+    if ( this->getConstraintCount() <= entry_limit )
     {
-        SparseMatrix Qi = this->getQuadraticConstraintsMatrix( i );
-        if ( Qi.nonZeros() )
+        for ( int i = 0; i != this->getConstraintCount(); ++i )
         {
-            char name[255]; sprintf(name, "Q%d", i);
-            _printSparseMatrix( Qi, name, entry_limit );
+            SparseMatrix Qi = this->getQuadraticConstraintsMatrix( i );
+            if ( Qi.nonZeros() )
+            {
+                char name[255]; sprintf(name, "Q%d", i);
+                _printSparseMatrix( Qi, name, entry_limit );
+            }
         }
     }
+    else
+    {
+        int cnt = 0;
+        for ( int i = 0; i != this->getConstraintCount(); ++i )
+        {
+            cnt += ( !this->getQuadraticConstraints(i).empty() );
+        }
+        std::cout << "[" << __func__ << "]: " << " have " << cnt << " nonempty quadratic constraint matrices" << std::endl;
+    }
+
 
     return EXIT_SUCCESS;
 } // ...OptProblem::printProblem()
@@ -625,6 +637,9 @@ OptProblem<_Scalar>::printProblem( int entry_limit /* = 10 */ ) const
 template <typename _Scalar> int
 OptProblem<_Scalar>::write( std::string const& path ) const
 {
+    const int entry_limit = 5;
+    int entries = 0;
+
     std::cout << "[" << __func__ << "]: " << "creating " << path << std::endl;
     mkdir( path.c_str(), S_IRWXU | S_IRWXG | S_IROTH | S_IXOTH );
     std::vector<std::string> paths;
@@ -684,7 +699,7 @@ OptProblem<_Scalar>::write( std::string const& path ) const
     {
         paths.push_back( getQiName(i) );
         io::writeSparseMatrix( this->getQuadraticConstraintsMatrix(i), path + "/" + paths.back(), 0 );
-        std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
+        if ( entries++ < entry_limit ) std::cout << "[" << __func__ << "]: " << "wrote " << path + "/" + paths.back() << "\t...";
     }
 
     // X0
@@ -825,6 +840,8 @@ template <typename _Scalar> int
 OptProblem<_Scalar>::read( std::string proj_file_path )
 {
     int err = EXIT_SUCCESS;
+    const int entry_limit = 5;
+    int entries = 0;
 
     // Parse project path
     std::string proj_path = ".";
@@ -861,11 +878,12 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
         proj_file.close();
     } //... parse project file
 
+
     // Parse project files
     for ( size_t i = 0; i != paths.size(); ++i )
     {
         std::string fname = paths[i];
-        std::cout << "[" << __func__ << "]: " << "reading " << proj_path + "/" + paths[i] << std::endl; fflush(stdout);
+        if ( entries < entry_limit ) std::cout << "[" << __func__ << "]: " << "reading " << proj_path + "/" + paths[i] << "..."; fflush(stdout);
         // aux file or sparse matrix
         if ( fname.find("aux") != std::string::npos )
         {
@@ -879,28 +897,28 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
             // save
             if ( fname.find("qo") != std::string::npos ) // lin objective
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << ",\t ";
+                std::cout << "read " << proj_path + "/" + paths[i] << " as lin obj mx" << ",  ";
                 err += this->addLinObjectives( mx );
                 std::cout << "problem varcount : " << this->getVarCount() << std::endl;
             } //...if qo
             else if ( fname.find("Qo") != std::string::npos ) // quadratic objective
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << ",\t ";
+                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic obj mx" << ", ";
                 err += this->addQObjectives( mx );
             } //...if Qo
             else if ( fname.find("A") != std::string::npos ) // lin constraint
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << ",\t ";
+                std::cout << "read " << proj_path + "/" + paths[i] << " as linear constraints mx" << ", ";
                 err += this->addLinConstraints( mx );
             } //...if A
             else if ( fname.find("Q") != std::string::npos ) // Qo will be parsed before, so that's fine
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << ",\t ";
+                if ( entries++ < entry_limit ) std::cout << "read " << proj_path + "/" + paths[i] << " as quadratic constraints mx" << ", ";
                 err += this->addQConstraints( mx );
             }
             else if ( fname.find(this->getX0Name()) != std::string::npos ) // Starting point
             {
-                std::cout << "read " << proj_path + "/" + paths[i] << " as starting point mx" << ",\t ";
+                std::cout << "read " << proj_path + "/" + paths[i] << " as starting point mx" << ", ";
                 if ( mx.nonZeros() )
                     err += this->setStartingPoint( mx );
                 else
@@ -908,7 +926,7 @@ OptProblem<_Scalar>::read( std::string proj_file_path )
             } //...ifelse sparse matrix type
         } //...sparse matrix
     } //...for project file
-    std::cout << std::endl;
+    if ( entries < entry_limit ) std::cout << std::endl;
 
     // print summary
     this->printProblem();

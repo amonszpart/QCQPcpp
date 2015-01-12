@@ -188,7 +188,7 @@ class OptProblem
 
         //! \brief              Prints inner state before optimization.
         //! \param entry_limit  How many entries to print of each matrix.
-        inline int                               printProblem                   ( int entry_limit = 10 ) const;
+        inline int                               printProblem                   ( int entry_limit = 5 ) const;
 
         //! \brief Setter to store latest solution, to be called from #optimize().
         inline void                              setSolution                    ( VectorX const& sol ) { _x = sol; }

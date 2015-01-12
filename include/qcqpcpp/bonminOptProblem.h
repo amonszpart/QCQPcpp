@@ -32,8 +32,12 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
 
         //! \brief BonminOpt    Default constructor.
         BonminOpt()
-            : _printSol(false)
-            , _debug   (false) {}
+            : _printSol ( false )
+            , _debug    ( false )
+            , _algCode  ( Bonmin::Algorithm::B_BB )
+            , _nodeLimit( 100 )
+            , _maxSolutions( 0 )
+        {}
 
         //! \brief ~BonminOpt   virtual destructor.
         virtual ~BonminOpt() {}
@@ -69,6 +73,9 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         inline void setDebug                               ( bool const debug ) { _debug = debug; }
         inline bool isPrintSol                             ()        const { return _printSol; }
         inline void setAlgorithm                           ( Bonmin::Algorithm alg ) { _algCode = alg; }
+        inline void setNodeLimit                           ( int nodeLimit )         { _nodeLimit = nodeLimit; }
+        inline void setMaxSolutions                        ( int maxSolutions )         { _maxSolutions = maxSolutions; }
+
 
     protected:
         //SparseMatrix                 _jacobian; //!< \brief Cached Jacobian of linear constraints.
@@ -80,6 +87,8 @@ class BonminOpt : public qcqpcpp::OptProblem<_Scalar>
         std::vector<SparseMatrix>    _Qs;       //!< \brief Cached full quadratic constraint matrices.
 
         Bonmin::Algorithm           _algCode;   //!< \brief Stores the chosen algorihtm code. 0 = B_Bb default.
+        int                         _nodeLimit; //!< \brief How many nodes bonmin can explore.
+        int                         _maxSolutions;
 
         VectorX                     _grad_f; //!< \brief Caches eval_grad_f output.
     private:
@@ -285,7 +294,7 @@ BonminOpt<_Scalar>::update( bool verbose /* = false */ )
         if ( Qs.back().nonZeros() > 0 )
         {
             max_Q_with_Nonzero = j;
-            std::cout << "nonzeros: " << Qs.back().nonZeros() << std::endl;
+            if ( verbose ) std::cout << "nonzeros: " << Qs.back().nonZeros() << std::endl;
         }
     }
 
@@ -350,9 +359,11 @@ BonminOpt<_Scalar>::optimize( std::vector<_Scalar> *x_out /* = NULL */, typename
     bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogLevel, 5 );
     //bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, 1000 );
     bonmin2.setIntParameter( Bonmin::BabSetupBase::BabLogInterval, 10 );
-    bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, 150 );
+    bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxNodes, _nodeLimit );
+    if ( _maxSolutions )
+        bonmin2.setIntParameter( Bonmin::BabSetupBase::MaxSolutions, _maxSolutions );
 
-    std::cout << "[" << __func__ << "]: " << "Bonmin::MaxNode = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxNodes ) << std::endl;
+    std::cout << "[" << __func__ << "]: " << "Bonmin::MaxNode = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxNodes ) << ", _nodeLimit: " << _nodeLimit << std::endl;
     std::cout << "[" << __func__ << "]: " << "Bonmin::MaxIterations = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::MaxIterations ) << std::endl;
     std::cout << "[" << __func__ << "]: " << "Bonmin::BabLogInterval = " << bonmin2.getIntParameter( Bonmin::BabSetupBase::BabLogInterval ) << std::endl;
 
@@ -819,7 +830,7 @@ BonminTMINLP<_Scalar>::eval_g( Ipopt::Index n, const Ipopt::Number* x, bool new_
 
     for ( int j = 0; j != _delegate.getConstraintCount(); ++j )
     {
-        if ( j < _delegate.getCachedQSize() )
+        if ( (j < _delegate.getCachedQSize()) && (_delegate.getCachedQ(j).nonZeros()) )
             c(j) += (x_eig.transpose() * _delegate.getCachedQ(j) * x_eig).coeff(0);
 
         g[j] = c(j);
@@ -997,12 +1008,12 @@ BonminTMINLP<_Scalar>::finalize_solution( TMINLP::SolverReturn   status
     std::cout << "Problem status: "  << status;
     switch (status)
     {
-        case SUCCESS: std::cout << "SUCCESS"; break;
-        case INFEASIBLE: std::cout << "INFEASIBLE"; break;
-        case CONTINUOUS_UNBOUNDED: std::cout << "CONTINUOUS_UNBOUNDED"; break;
-        case LIMIT_EXCEEDED: std::cout << "LIMIT_EXCEEDED"; break;
-        case MINLP_ERROR: std::cout << "MINLP_ERROR"; break;
-        default: std::cout << "UNKNOWN"; break;
+        case SUCCESS: std::cout << " SUCCESS"; break;
+        case INFEASIBLE: std::cout << " INFEASIBLE"; break;
+        case CONTINUOUS_UNBOUNDED: std::cout << " CONTINUOUS_UNBOUNDED"; break;
+        case LIMIT_EXCEEDED: std::cout << " LIMIT_EXCEEDED"; break;
+        case MINLP_ERROR: std::cout << " MINLP_ERROR"; break;
+        default: std::cout << " UNKNOWN"; break;
     }
     std::cout << std::endl;
 
